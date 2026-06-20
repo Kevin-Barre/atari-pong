@@ -1,34 +1,20 @@
 from __future__ import annotations
-import sys
-import pygame
-import constants
 from state.game_state import GameState, GameStatus
-from state.paddle import Paddle
 from state.ball import Ball
-from logic.ball_physics       import BallPhysics
-from logic.collision          import CollisionEngine, CollisionType
-from logic.score_manager      import ScoreManager
-from logic.ai_controller      import AIController
-from logic.power_up_manager   import PowerUpManager
-from engine.input_handler     import PlayerInputHandler
-from engine.renderer          import Renderer
-from presentation.hud              import HUD
-from presentation.menu             import Menu
-from presentation.game_over_screen import GameOverScreen
+from state.paddle import Paddle
+from logic.ball_physics import BallPhysics
+from logic.collision import CollisionEngine, CollisionType
+from logic.score_manager import ScoreManager
+from logic.ai_controller import AIController
+from logic.power_up_manager import PowerUpManager
+from engine.input_handler import WebInputHandler
+import constants
 
 
 class GameLoop:
     def __init__(self) -> None:
-        pygame.init()
-        self._screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT))
-        pygame.display.set_caption("Atari Pong")
-        self._clock = pygame.time.Clock()
-
         self._state = GameState()
-
-        self._renderer    = Renderer(self._screen)
-        self._input_p1    = PlayerInputHandler(pygame.K_w,  pygame.K_s)
-        self._input_p2    = PlayerInputHandler(pygame.K_UP, pygame.K_DOWN)
+        self._keys: set[str] = set()
 
         self._ball_physics  = BallPhysics()
         self._collision     = CollisionEngine()
@@ -36,58 +22,17 @@ class GameLoop:
         self._ai            = AIController()
         self._power_up_mgr  = PowerUpManager()
 
-        self._hud        = HUD()
-        self._menu       = Menu()
-        self._game_over  = GameOverScreen()
+        self._input_p1 = WebInputHandler('KeyW',    'KeyS',       self._keys)
+        self._input_p2 = WebInputHandler('ArrowUp', 'ArrowDown',  self._keys)
 
-    def run(self) -> None:
-        while True:
-            delta = self._clock.tick(constants.FPS) / 1000.0
-            self._handle_events()
-            self._update(delta)
-            self._render()
-            pygame.display.flip()
+    def on_key_down(self, code: str) -> None:
+        self._keys.add(code)
+        self._handle_menu_key(code)
 
-    def _handle_events(self) -> None:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == pygame.KEYDOWN:
-                self._on_key(event.key)
+    def on_key_up(self, code: str) -> None:
+        self._keys.discard(code)
 
-    def _on_key(self, key: int) -> None:
-        status = self._state.status
-
-        if status == GameStatus.MENU:
-            if key == pygame.K_RETURN:
-                self._state.status = GameStatus.MODE_SELECTION
-
-        elif status == GameStatus.MODE_SELECTION:
-            if key == pygame.K_1:
-                self._state.two_player_mode = False
-                self._start_game()
-            elif key == pygame.K_2:
-                self._state.two_player_mode = True
-                self._start_game()
-            elif key == pygame.K_ESCAPE:
-                self._state.status = GameStatus.MENU
-
-        elif status == GameStatus.PLAYING:
-            if key == pygame.K_p:
-                self._state.status = GameStatus.PAUSED
-
-        elif status == GameStatus.PAUSED:
-            if key == pygame.K_p:
-                self._state.status = GameStatus.PLAYING
-
-        elif status == GameStatus.GAME_OVER:
-            if key == pygame.K_r:
-                self._reset_game()
-            elif key == pygame.K_ESCAPE:
-                self._state.status = GameStatus.MENU
-
-    def _update(self, delta: float) -> None:
+    def update(self, delta: float) -> None:
         if self._state.status != GameStatus.PLAYING:
             return
         self._move_paddles()
@@ -95,6 +40,56 @@ class GameLoop:
         self._resolve_collisions()
         self._power_up_mgr.try_spawn(self._state, delta)
         self._power_up_mgr.update_timers(self._state, delta)
+
+    def to_dict(self) -> dict:
+        s = self._state
+        return {
+            "status":           s.status.name,
+            "ball":             {"x": s.ball.x, "y": s.ball.y, "radius": s.ball.radius},
+            "paddleLeft":       {"x": s.paddle_left.x,  "y": s.paddle_left.y,
+                                 "width": s.paddle_left.width,  "height": s.paddle_left.height},
+            "paddleRight":      {"x": s.paddle_right.x, "y": s.paddle_right.y,
+                                 "width": s.paddle_right.width, "height": s.paddle_right.height},
+            "scoreLeft":        s.score_left,
+            "scoreRight":       s.score_right,
+            "powerUp":          {"x": s.power_up.x, "y": s.power_up.y,
+                                 "radius": s.power_up.radius, "type": s.power_up.type.name}
+                                if s.power_up else None,
+            "effectTimerLeft":  s.effect_timer_left,
+            "effectTimerRight": s.effect_timer_right,
+            "winner":           s.winner,
+        }
+
+    def _handle_menu_key(self, code: str) -> None:
+        status = self._state.status
+
+        if status == GameStatus.MENU:
+            if code == 'Enter':
+                self._state.status = GameStatus.MODE_SELECTION
+
+        elif status == GameStatus.MODE_SELECTION:
+            if code == 'Digit1':
+                self._state.two_player_mode = False
+                self._start_game()
+            elif code == 'Digit2':
+                self._state.two_player_mode = True
+                self._start_game()
+            elif code == 'Escape':
+                self._state.status = GameStatus.MENU
+
+        elif status == GameStatus.PLAYING:
+            if code == 'KeyP':
+                self._state.status = GameStatus.PAUSED
+
+        elif status == GameStatus.PAUSED:
+            if code == 'KeyP':
+                self._state.status = GameStatus.PLAYING
+
+        elif status == GameStatus.GAME_OVER:
+            if code == 'KeyR':
+                self._reset_game()
+            elif code == 'Escape':
+                self._state.status = GameStatus.MENU
 
     def _move_paddles(self) -> None:
         dir_left = self._input_p1.get_direction()
@@ -109,45 +104,33 @@ class GameLoop:
         self._clamp_paddle(self._state.paddle_right, dir_right * speed)
 
     def _clamp_paddle(self, paddle: Paddle, dy: float) -> None:
-        paddle.y = max(
-            0.0,
-            min(constants.SCREEN_HEIGHT - paddle.height, paddle.y + dy),
-        )
+        paddle.y = max(0.0, min(constants.SCREEN_HEIGHT - paddle.height, paddle.y + dy))
 
     def _resolve_collisions(self) -> None:
         ball  = self._state.ball
         state = self._state
-
-        wall = self._collision.check_walls(ball)
+        wall  = self._collision.check_walls(ball)
 
         if wall == CollisionType.WALL_TOP:
             self._ball_physics.bounce_vertical(ball)
             ball.y = float(ball.radius)
-
         elif wall == CollisionType.WALL_BOTTOM:
             self._ball_physics.bounce_vertical(ball)
             ball.y = float(constants.SCREEN_HEIGHT - ball.radius)
-
         elif wall == CollisionType.OUT_LEFT:
             self._score_manager.award_point_right(state)
             if state.status == GameStatus.PLAYING:
                 self._ball_physics.reset(ball, direction=1)
-
         elif wall == CollisionType.OUT_RIGHT:
             self._score_manager.award_point_left(state)
             if state.status == GameStatus.PLAYING:
                 self._ball_physics.reset(ball, direction=-1)
 
         if ball.vx < 0 and self._collision.check_paddle(ball, state.paddle_left):
-            self._ball_physics.bounce_off_paddle(
-                ball, state.paddle_left.y, state.paddle_left.height,
-            )
+            self._ball_physics.bounce_off_paddle(ball, state.paddle_left.y, state.paddle_left.height)
             ball.x = state.paddle_left.x + state.paddle_left.width + ball.radius
-
         elif ball.vx > 0 and self._collision.check_paddle(ball, state.paddle_right):
-            self._ball_physics.bounce_off_paddle(
-                ball, state.paddle_right.y, state.paddle_right.height,
-            )
+            self._ball_physics.bounce_off_paddle(ball, state.paddle_right.y, state.paddle_right.height)
             ball.x = state.paddle_right.x - ball.radius
 
         if state.power_up is not None and self._collision.check_power_up(ball, state.power_up):
@@ -156,34 +139,16 @@ class GameLoop:
             else:
                 self._power_up_mgr.apply_to_left(state)
 
-    def _render(self) -> None:
-        status = self._state.status
-
-        if status == GameStatus.MENU:
-            self._menu.draw_main(self._screen)
-
-        elif status == GameStatus.MODE_SELECTION:
-            self._menu.draw_mode_selection(self._screen)
-
-        elif status in (GameStatus.PLAYING, GameStatus.PAUSED):
-            self._renderer.draw_game(self._state)
-            if status == GameStatus.PAUSED:
-                self._hud.draw_pause(self._screen)
-
-        elif status == GameStatus.GAME_OVER:
-            self._renderer.draw_game(self._state)
-            self._game_over.draw(self._screen, self._state.winner)
-
     def _start_game(self) -> None:
         self._score_manager.reset(self._state)
-        self._state.power_up               = None
-        self._state.power_up_effect_left   = None
-        self._state.power_up_effect_right  = None
-        self._state.effect_timer_left      = 0.0
-        self._state.effect_timer_right     = 0.0
-        self._state.power_up_timer         = 0.0
-        self._state.paddle_left            = Paddle.create_left()
-        self._state.paddle_right           = Paddle.create_right()
+        self._state.power_up              = None
+        self._state.power_up_effect_left  = None
+        self._state.power_up_effect_right = None
+        self._state.effect_timer_left     = 0.0
+        self._state.effect_timer_right    = 0.0
+        self._state.power_up_timer        = 0.0
+        self._state.paddle_left           = Paddle.create_left()
+        self._state.paddle_right          = Paddle.create_right()
         self._ball_physics.reset(self._state.ball)
         self._state.status = GameStatus.PLAYING
 
