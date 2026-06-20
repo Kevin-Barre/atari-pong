@@ -8,40 +8,100 @@ Principios aplicados: **SOLID**, **SRP**, **SoC** (Separation of Concerns), **DR
 
 ---
 
+## Tecnología por capa
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Capa 1 — PRESENTACIÓN                                      │
+│  HTML5 Canvas + JavaScript (ES6 modules)                    │
+│  Renderiza en el navegador, NO contiene lógica de juego     │
+└────────────────────┬────────────────────────────────────────┘
+                     │  WebSocket JSON  (~60 fps bidireccional)
+┌────────────────────▼────────────────────────────────────────┐
+│  Capa 2 — MOTOR                                             │
+│  Python asyncio + websockets                                │
+│  Loop a 60 FPS, sirve HTTP, gestiona conexiones WS          │
+└────────────────────┬────────────────────────────────────────┘
+                     │  llamadas directas Python
+┌────────────────────▼────────────────────────────────────────┐
+│  Capa 3 — LÓGICA                                            │
+│  Python puro                                                │
+│  Física, AABB, puntaje, IA, power-ups                       │
+└────────────────────┬────────────────────────────────────────┘
+                     │  lectura / escritura
+┌────────────────────▼────────────────────────────────────────┐
+│  Capa 4 — ESTADO                                            │
+│  Python dataclasses                                         │
+│  Datos puros, zero lógica, zero imports de capas superiores │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Estructura de carpetas
 
 ```
 pong/
 │
-├── main.py                    # Punto de entrada: instancia GameLoop y lo arranca
+├── main.py                    # Servidor WebSocket (ws://localhost:8765)
+│                              # + servidor HTTP estático (http://localhost:8080)
 ├── constants.py               # Todas las constantes del juego (sin magic numbers)
+├── requirements.txt           # websockets>=12.0
 │
 ├── state/                     # Capa 4 — Estado del juego (datos puros, sin lógica)
 │   ├── __init__.py
 │   ├── game_state.py          # Enum GameStatus + dataclass con el estado global
 │   ├── ball.py                # Dataclass Ball: posición, velocidad, tamaño
 │   ├── paddle.py              # Dataclass Paddle: posición, tamaño, jugador
-│   └── power_up.py            # Dataclass PowerUp: tipo, posición, duración restante
+│   └── power_up.py            # Dataclass PowerUp: tipo, posición, radio
 │
 ├── logic/                     # Capa 3 — Lógica del juego (reglas, física, IA)
 │   ├── __init__.py
 │   ├── ball_physics.py        # Mueve la pelota, aplica velocidad incremental
-│   ├── collision.py           # Motor AABB: detecta y resuelve colisiones
+│   ├── collision.py           # Motor AABB: detecta colisiones
 │   ├── score_manager.py       # Lleva el puntaje, detecta fin de partida
 │   ├── ai_controller.py       # Calcula el movimiento de la paleta de la IA
 │   └── power_up_manager.py    # Genera power-ups, gestiona efectos y duraciones
 │
-├── engine/                    # Capa 2 — Motor del juego (loop, render, input)
+├── engine/                    # Capa 2 — Motor del juego (loop, input, WS)
 │   ├── __init__.py
-│   ├── game_loop.py           # Loop principal a 60 FPS, orquesta todo
-│   ├── renderer.py            # Dibuja cada fotograma en el canvas pygame
-│   └── input_handler.py       # Abstrae la entrada de teclado por jugador
+│   ├── game_loop.py           # Loop a 60 FPS, serializa estado a JSON
+│   └── input_handler.py      # WebInputHandler: lee teclas desde mensajes WS
 │
-└── presentation/              # Capa 1 — Presentación (pantallas y HUD)
-    ├── __init__.py
-    ├── hud.py                 # Marcador en pantalla + indicador de power-up activo
-    ├── menu.py                # Pantalla de inicio y selección de modo (1P / 2P)
-    └── game_over_screen.py    # Pantalla de fin de partida con ganador y opciones
+└── presentation/              # Capa 1 — Frontend HTML5 (puro JS/Canvas)
+    ├── index.html             # Entry point servido en http://localhost:8080
+    ├── main.js                # Cliente WebSocket + bucle de render (rAF)
+    ├── renderer.js            # Dibuja entidades en Canvas 2D
+    ├── hud.js                 # Overlay de pausa
+    ├── menu.js                # Pantallas de menú y selección de modo
+    ├── game_over_screen.js    # Pantalla de fin de partida
+    └── constants.js           # Espejo JS de las constantes de Python
+```
+
+---
+
+## Protocolo WebSocket
+
+### Servidor → Cliente (cada frame, ~60/s)
+```json
+{
+  "status": "PLAYING",
+  "ball":        { "x": 400, "y": 300, "radius": 8 },
+  "paddleLeft":  { "x": 30,  "y": 260, "width": 12, "height": 80 },
+  "paddleRight": { "x": 758, "y": 260, "width": 12, "height": 80 },
+  "scoreLeft": 2,
+  "scoreRight": 1,
+  "powerUp": { "x": 400, "y": 300, "radius": 12, "type": "GROW" },
+  "effectTimerLeft": 7.4,
+  "effectTimerRight": 0,
+  "winner": ""
+}
+```
+
+### Cliente → Servidor (eventos de teclado)
+```json
+{ "type": "keydown", "code": "KeyW" }
+{ "type": "keyup",   "code": "ArrowDown" }
 ```
 
 ---
@@ -52,8 +112,8 @@ pong/
 **Responsabilidad:** almacenar los datos del juego sin procesarlos.
 
 - No contiene lógica de negocio.
-- Usa `dataclasses` de Python: son mutables, con tipos explícitos y sin dependencias externas.
-- Cualquier otra capa puede leer el estado, pero solo la Capa 3 lo modifica.
+- Usa `dataclasses` de Python: mutables, con tipos explícitos, sin dependencias externas.
+- **Ninguna capa superior puede ser importada aquí.**
 
 ```python
 # state/ball.py
@@ -68,63 +128,24 @@ class Ball:
     radius: int
 ```
 
-```python
-# state/game_state.py
-from enum import Enum, auto
-from dataclasses import dataclass, field
-from state.ball import Ball
-from state.paddle import Paddle
-from state.power_up import PowerUp
-
-class GameStatus(Enum):
-    MENU = auto()
-    MODE_SELECTION = auto()
-    PLAYING = auto()
-    PAUSED = auto()
-    GAME_OVER = auto()
-
-@dataclass
-class GameState:
-    status: GameStatus = GameStatus.MENU
-    ball: Ball = field(default_factory=Ball.create_default)
-    paddle_left: Paddle = field(default_factory=lambda: Paddle.create_left())
-    paddle_right: Paddle = field(default_factory=lambda: Paddle.create_right())
-    score_left: int = 0
-    score_right: int = 0
-    active_power_up: PowerUp | None = None
-    two_player_mode: bool = False
-```
-
 ---
 
 ### Capa 3 — Lógica del juego (`logic/`)
-**Responsabilidad:** implementar las reglas del juego. No sabe nada de pygame ni de cómo se dibuja nada.
-
-Cada módulo tiene una sola responsabilidad (SRP):
+**Responsabilidad:** implementar las reglas del juego. No sabe nada de WebSocket, HTTP ni Canvas.
 
 | Módulo | Responsabilidad única |
 |---|---|
-| `ball_physics.py` | Mover la pelota cada frame; aplicar +5% de velocidad tras rebote en paleta |
-| `collision.py` | Detectar colisiones AABB y devolver el tipo de colisión ocurrida |
-| `score_manager.py` | Actualizar puntaje cuando la pelota sale; detectar ganador al llegar a 5 |
-| `ai_controller.py` | Calcular la dirección de movimiento de la paleta derecha en modo 1P |
-| `power_up_manager.py` | Decidir cuándo y dónde aparece un power-up; aplicar/revertir sus efectos |
+| `ball_physics.py` | Mover la pelota; aplicar +5% velocidad tras rebote en paleta |
+| `collision.py` | Detectar colisiones AABB y devolver el tipo de colisión |
+| `score_manager.py` | Actualizar puntaje; detectar ganador al llegar a 5 |
+| `ai_controller.py` | Calcular dirección de movimiento de la paleta derecha en modo 1P |
+| `power_up_manager.py` | Decidir cuándo aparece un power-up; aplicar/revertir efectos |
 
-**Ejemplo — ángulo de rebote variable (Feature 4):**
-```python
-# logic/collision.py
-def calculate_bounce_angle(ball_y: float, paddle: Paddle) -> float:
-    relative_impact = (ball_y - paddle.y) / paddle.height  # 0.0 a 1.0
-    normalized = relative_impact - 0.5                     # -0.5 a 0.5
-    return normalized * MAX_BOUNCE_ANGLE                   # e.g. ±75 grados
-```
-
-**OCP para power-ups (Feature 2):** se usa una clase base abstracta para que agregar un nuevo tipo no modifique el código existente.
+**OCP para power-ups (Feature 2):** clase base abstracta → agregar un nuevo tipo no modifica el código existente.
 
 ```python
 # logic/power_up_manager.py
 from abc import ABC, abstractmethod
-from state.paddle import Paddle
 
 class PowerUpEffect(ABC):
     @abstractmethod
@@ -134,67 +155,52 @@ class PowerUpEffect(ABC):
     def revert(self, paddle: Paddle) -> None: ...
 
 class GrowPaddleEffect(PowerUpEffect):
-    def apply(self, paddle: Paddle) -> None:
-        paddle.height = int(paddle.height * 1.5)
-
-    def revert(self, paddle: Paddle) -> None:
-        paddle.height = int(paddle.height / 1.5)
-
-class ShrinkPaddleEffect(PowerUpEffect):
-    def apply(self, paddle: Paddle) -> None:
-        paddle.height = int(paddle.height * 0.67)
-
-    def revert(self, paddle: Paddle) -> None:
-        paddle.height = int(paddle.height / 0.67)
+    def apply(self, paddle):  paddle.height = int(paddle.height * 1.5)
+    def revert(self, paddle): paddle.height = int(paddle.height / 1.5)
 ```
 
 ---
 
 ### Capa 2 — Motor del juego (`engine/`)
-**Responsabilidad:** coordinar el ciclo a 60 FPS, delegar la lógica a la Capa 3 y la visualización a la Capa 1.
+**Responsabilidad:** coordinar el ciclo a 60 FPS, transmitir estado via WebSocket y recibir input del cliente.
 
-`GameLoop` es el orquestador. No contiene lógica de juego — la delega.
+`GameLoop` es el orquestador. No contiene lógica de juego — la delega a la Capa 3.
 
 ```
-GameLoop._update()  →  llama a BallPhysics, CollisionEngine, ScoreManager, PowerUpManager
-GameLoop._render()  →  llama a Renderer y HUD
-GameLoop._handle_input()  →  llama a InputHandler
+GameLoop.update()   →  llama a BallPhysics, CollisionEngine, ScoreManager, PowerUpManager
+GameLoop.to_dict()  →  serializa GameState a JSON para el cliente
+main.py ws_handler  →  recibe keydown/keyup, llama a GameLoop.on_key_down/up()
 ```
 
-**DIP — Inversión de dependencias:** `GameLoop` depende de protocolos/interfaces, no de implementaciones concretas. Así se puede inyectar un `AIController` o un `PlayerInputHandler` según el modo de juego.
+**DIP — Inversión de dependencias:** `GameLoop` depende del `WebInputHandler`, que recibe un `set` de teclas como protocolo implícito. La fuente de ese set (WebSocket, teclado local, test) es irrelevante para GameLoop.
 
 ```python
 # engine/input_handler.py
-from typing import Protocol
-from state.paddle import Paddle
+class WebInputHandler:
+    def __init__(self, key_up: str, key_down: str, key_state: set) -> None: ...
 
-class InputHandler(Protocol):
     def get_direction(self) -> int:
-        """Retorna -1 (arriba), 0 (quieto) o 1 (abajo)."""
-        ...
-
-class PlayerInputHandler:
-    def __init__(self, key_up: int, key_down: int): ...
-    def get_direction(self) -> int: ...
-
-class AIInputHandler:
-    def __init__(self, ai_controller): ...
-    def get_direction(self) -> int: ...
+        if self._key_up   in self._key_state: return -1
+        if self._key_down in self._key_state: return  1
+        return 0
 ```
 
 ---
 
 ### Capa 1 — Presentación (`presentation/`)
-**Responsabilidad:** mostrar información visual al jugador. No tiene lógica de negocio.
+**Responsabilidad:** renderizar en el navegador lo que el servidor le indica. No tiene lógica de negocio.
 
-Cada módulo dibuja una pantalla o elemento de UI leyendo el estado como entrada:
+```javascript
+// presentation/main.js
+ws.onmessage = e => { state = JSON.parse(e.data); };
 
-```python
-# presentation/hud.py
-class HUD:
-    def draw(self, surface, state: GameState) -> None:
-        # dibuja puntaje y power-up activo, sin modificar el estado
-        ...
+function render() {
+    if      (state.status === 'PLAYING')        renderer.drawGame(state);
+    else if (state.status === 'PAUSED')       { renderer.drawGame(state); hud.drawPause(); }
+    else if (state.status === 'MENU')           menu.drawMain();
+    else if (state.status === 'GAME_OVER')      gameOverScreen.draw(state.winner);
+    requestAnimationFrame(render);
+}
 ```
 
 ---
@@ -203,12 +209,13 @@ class HUD:
 
 ```mermaid
 graph LR
-    P["presentation/\nhud · menu · game_over"]
-    E["engine/\ngame_loop · renderer · input_handler"]
+    P["presentation/\nindex.html · main.js\nrenderer · hud · menu"]
+    E["engine/\ngame_loop · input_handler"]
     L["logic/\nball_physics · collision · score_manager\nai_controller · power_up_manager"]
     S["state/\ngame_state · ball · paddle · power_up"]
 
-    P -->|lee GameState| E
+    P -->|"WebSocket JSON\n(keydown / keyup)"| E
+    E -->|"WebSocket JSON\n(game state)"| P
     E -->|llama métodos| L
     L -->|lee y escribe| S
 
@@ -219,22 +226,24 @@ graph LR
 ```
 
 **Regla de oro:** ningún módulo de una capa puede importar desde una capa superior.  
-`state/` nunca importa de `logic/` ni de `engine/`. `logic/` nunca importa de `engine/`.
+`state/` nunca importa de `logic/`. `logic/` nunca importa de `engine/`. El frontend no contiene lógica de colisiones ni física.
 
 ---
 
 ## Constants — sin magic numbers
 
-Toda constante del juego vive en `constants.py`:
+Toda constante del juego vive en `constants.py` (Python) y se espeja en `presentation/constants.js` (JS):
 
 ```python
 # constants.py
 SCREEN_WIDTH  = 800
 SCREEN_HEIGHT = 600
 FPS           = 60
+WS_PORT       = 8765
+HTTP_PORT     = 8080
 
-BALL_RADIUS      = 8
-BALL_BASE_SPEED  = 5.0
+BALL_RADIUS          = 8
+BALL_BASE_SPEED      = 5.0
 BALL_SPEED_INCREMENT = 0.05   # +5% por rebote en paleta
 
 PADDLE_WIDTH   = 12
@@ -242,13 +251,13 @@ PADDLE_HEIGHT  = 80
 PADDLE_SPEED   = 6
 AI_SPEED       = 4
 
-MAX_BOUNCE_ANGLE  = 75        # grados máximos de desviación
-WINNING_SCORE     = 5
+MAX_BOUNCE_ANGLE     = 75     # grados máximos de desviación
+WINNING_SCORE        = 5
 
-POWER_UP_DURATION     = 10    # segundos
-POWER_UP_SPAWN_EVERY  = 15    # segundos entre apariciones
-GROW_FACTOR           = 1.5
-SHRINK_FACTOR         = 0.67
+POWER_UP_DURATION    = 10.0   # segundos
+POWER_UP_SPAWN_EVERY = 15.0   # segundos entre apariciones
+GROW_FACTOR          = 1.5
+SHRINK_FACTOR        = 0.67
 ```
 
 ---
@@ -257,8 +266,8 @@ SHRINK_FACTOR         = 0.67
 
 | Principio | Aplicación concreta |
 |---|---|
-| **S** — SRP | Cada clase en `logic/` hace exactamente una cosa (`ScoreManager` solo puntaje, `CollisionEngine` solo colisiones) |
+| **S** — SRP | Cada clase en `logic/` hace exactamente una cosa (`ScoreManager` solo puntaje, `CollisionEngine` solo colisiones). `Renderer.js` solo dibuja. |
 | **O** — OCP | `PowerUpEffect` es extensible sin modificar: agregar `SpeedBoostEffect` no toca `PowerUpManager` |
 | **L** — LSP | `GrowPaddleEffect` y `ShrinkPaddleEffect` son intercambiables donde se espera `PowerUpEffect` |
-| **I** — ISP | `InputHandler` como Protocol tiene un único método `get_direction()` — no se obliga a implementar nada extra |
-| **D** — DIP | `GameLoop` depende del Protocol `InputHandler`, no de `PlayerInputHandler` directamente; se inyecta en el constructor |
+| **I** — ISP | `WebInputHandler` expone solo `get_direction()` — no se obliga a implementar nada extra |
+| **D** — DIP | `GameLoop` recibe el conjunto de teclas como dependencia inyectada; no importa si viene de WebSocket o de un test |

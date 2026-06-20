@@ -4,7 +4,7 @@ Proyecto universitario — Universidad Internacional del Ecuador
 Materia: Arquitectura de Software  
 Autor: Kevin Barré Espín · Quito, Mayo 2026
 
-Reimplementación del Pong clásico en Python con cuatro funcionalidades propias, siguiendo una arquitectura limpia en capas con principios SOLID.
+Reimplementación del Pong clásico usando una arquitectura híbrida: **Python** ejecuta la lógica del juego, **HTML5 Canvas** renderiza en el navegador, y **WebSocket** los conecta en tiempo real. Arquitectura limpia en 4 capas con principios SOLID.
 
 ---
 
@@ -65,18 +65,34 @@ Reimplementación del Pong clásico en Python con cuatro funcionalidades propias
 
 ---
 
+## Arquitectura
+
+```
+Python backend (logic + engine + state)
+        ↕  WebSocket (JSON, ~60 FPS)
+HTML5 Canvas frontend (presentation)
+```
+
+| Capa | Tecnología | Responsabilidad |
+|---|---|---|
+| Presentación | HTML5 Canvas + JavaScript | Renderiza el juego en el navegador |
+| Motor | Python asyncio + websockets | Loop 60 FPS, orquesta todo, sirve el frontend |
+| Lógica | Python | Física, colisiones AABB, IA, power-ups |
+| Estado | Python dataclasses | Datos puros, sin lógica |
+
 ## Requisitos
 
 ```
-Python >= 3.11
-pygame >= 2.5
+Python >= 3.9
+websockets >= 12.0
 ```
 
 ## Instalación y ejecución
 
 ```bash
-pip install pygame
+pip install websockets
 python main.py
+# Abre automáticamente http://localhost:8080 en el navegador
 ```
 
 ## Controles
