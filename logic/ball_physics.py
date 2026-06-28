@@ -25,7 +25,7 @@ class BallPhysics:
         angle_rad = math.radians(relative * constants.MAX_BOUNCE_ANGLE)
         current_speed = math.hypot(ball.vx, ball.vy)
         new_speed = min(
-            current_speed * (1.0 + constants.BALL_SPEED_INCREMENT),
+            current_speed * (1.0 + constants.BALL_SPEED_INCREMENT),   # 1.05.   = 5% increase in speed
             constants.BALL_MAX_SPEED,
         )
 

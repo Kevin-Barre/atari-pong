@@ -22,13 +22,17 @@ const ctx    = canvas.getContext('2d');
 const stadiumBg = new Image();
 stadiumBg.src = '../assets/football-soccer-with-green-vector.jpg';
 
-// ── theme ──────────────────────────────────────────────────────────────────
-let theme = 'classic'; // 'classic' | 'stadium'
+// ── theme + ui state ───────────────────────────────────────────────────────
+let theme        = 'classic'; // 'classic' | 'stadium'
+let showInfo     = false;
+let pausedByInfo = false;   // true cuando nosotros pausamos al abrir el panel
 
 const THEME_BTNS = [
-    { x:248, y:422, w:140, h:44, id:'classic', label:'Clásico' },
-    { x:412, y:422, w:140, h:44, id:'stadium', label:'Estadio ⚽'  }
+    { x:248, y:422, w:140, h:44, id:'classic', label:'Clásico'    },
+    { x:412, y:422, w:140, h:44, id:'stadium', label:'Estadio ⚽' }
 ];
+
+const INFO_BTN = { x:752, y:8, w:36, h:36 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function rr(x, y, w, h, r) {
@@ -62,7 +66,7 @@ function hit(b, x, y) { return x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h; }
 
 // ── button regions ─────────────────────────────────────────────────────────
 const R = {
-    MENU:           [{ x:270, y:318, w:260, h:60, code:'Enter' }],
+    MENU:           [{ x:270, y:318, w:260, h:60, code:'Enter'  }],
     MODE_SELECTION: [
         { x:100, y:210, w:255, h:240, code:'Digit1' },
         { x:445, y:210, w:255, h:240, code:'Digit2' },
@@ -97,6 +101,16 @@ function send(code) {
     setTimeout(() => ws.send(JSON.stringify({ type:'keyup', code })), 60);
 }
 
+function openInfo() {
+    showInfo = true;
+    if (gs?.status === 'PLAYING') { pausedByInfo = true; send('KeyP'); }
+}
+
+function closeInfo() {
+    showInfo = false;
+    if (pausedByInfo) { pausedByInfo = false; send('KeyP'); }
+}
+
 // ── input ──────────────────────────────────────────────────────────────────
 window.addEventListener('keydown', e => {
     e.preventDefault();
@@ -111,14 +125,16 @@ canvas.addEventListener('mousemove', e => {
     mx = e.clientX-r.left; my = e.clientY-r.top;
     const onWsBtn    = activeRegions().some(b => hit(b,mx,my));
     const onThemeBtn = (!gs || gs.status === 'MENU') && THEME_BTNS.some(b => hit(b,mx,my));
-    canvas.style.cursor = (onWsBtn || onThemeBtn) ? 'pointer' : 'default';
+    const onInfoBtn  = gs?.status === 'PLAYING' && !showInfo && hit(INFO_BTN, mx, my);
+    canvas.style.cursor = (onWsBtn || onThemeBtn || onInfoBtn) ? 'pointer' : 'default';
 });
 canvas.addEventListener('mouseleave', () => { mx=-1; my=-1; canvas.style.cursor='default'; });
 
 canvas.addEventListener('click', e => {
     const r = canvas.getBoundingClientRect();
     const x = e.clientX-r.left, y = e.clientY-r.top;
-    // theme buttons (menu only)
+    if (showInfo) { closeInfo(); return; }
+    if (gs?.status === 'PLAYING' && hit(INFO_BTN, x, y)) { openInfo(); return; }
     if (!gs || gs.status === 'MENU') {
         const tb = THEME_BTNS.find(b => hit(b,x,y));
         if (tb) { theme = tb.id; return; }
@@ -157,34 +173,26 @@ function drawMenu() {
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.fillRect(CX-80, 290, 160, 1);
 
-    // Jugar button
     drawBtn(R.MENU[0].x, R.MENU[0].y, R.MENU[0].w, R.MENU[0].h,
         'Jugar', hit(R.MENU[0],mx,my),
         { fs:22, fw:'700', r:12, bg:'rgba(255,255,255,0.09)', hbg:'rgba(255,255,255,0.18)',
           bd:'rgba(255,255,255,0.35)', hbd:'rgba(255,255,255,1)' });
 
-    // Theme selector label
     ctx.fillStyle = 'rgba(255,255,255,0.32)';
     ctx.font = '12px system-ui, sans-serif';
     ctx.fillText('CAMPO', CX, 414);
 
-    // Theme buttons
     THEME_BTNS.forEach(tb => {
-        const sel = theme === tb.id;
-        const hov = hit(tb, mx, my);
+        const sel = theme === tb.id, hov = hit(tb, mx, my);
         ctx.save();
         rr(tb.x, tb.y, tb.w, tb.h, 8);
         ctx.fillStyle = sel ? 'rgba(255,255,255,0.13)' : hov ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
         ctx.fill();
         rr(tb.x, tb.y, tb.w, tb.h, 8);
         ctx.strokeStyle = sel ? 'rgba(255,255,255,0.85)' : hov ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)';
-        ctx.lineWidth = sel ? 2 : 1.2;
-        ctx.stroke();
-        // color dot
+        ctx.lineWidth = sel ? 2 : 1.2; ctx.stroke();
         ctx.fillStyle = tb.id === 'stadium' ? '#32a852' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(tb.x+20, tb.y+tb.h/2, 7, 0, Math.PI*2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(tb.x+20, tb.y+tb.h/2, 7, 0, Math.PI*2); ctx.fill();
         if (tb.id === 'stadium') {
             ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
         }
@@ -205,34 +213,38 @@ function drawMenu() {
 function drawModeSelection() {
     if (theme === 'stadium' && stadiumBg.complete && stadiumBg.naturalWidth > 0) {
         ctx.drawImage(stadiumBg, 0, 0, W, H);
-        ctx.fillStyle = 'rgba(0,0,0,0.48)';
+        // Thin wash so card text stays readable without hiding the image
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
         ctx.fillRect(0, 0, W, H);
     } else {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
     }
+
+    ctx.save();
+    if (theme === 'stadium') { ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10; }
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 34px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('Elige tu modo de juego', CX, 152);
+    ctx.restore();
 
-    drawModeCard(R.MODE_SELECTION[0], '1 Jugador', 'vs. IA', '#00C8DC', false);
+    drawModeCard(R.MODE_SELECTION[0], '1 Jugador',   'vs. IA',        '#00C8DC', false);
     drawModeCard(R.MODE_SELECTION[1], '2 Jugadores', 'Mismo teclado', '#32C864', true);
 
     const hbk = hit(R.MODE_SELECTION[2],mx,my);
     drawBtn(R.MODE_SELECTION[2].x, R.MODE_SELECTION[2].y, R.MODE_SELECTION[2].w, R.MODE_SELECTION[2].h,
-        'Volver', hbk, { fs:16, fc:'rgba(255,255,255,0.7)', bg:'rgba(255,255,255,0.04)',
+        'Volver', hbk,
+        { fs:16, fc:'rgba(255,255,255,0.7)', bg:'rgba(255,255,255,0.04)',
           hbg:'rgba(255,255,255,0.1)', bd:'rgba(255,255,255,0.15)', hbd:'rgba(255,255,255,0.5)' });
 }
 
 function drawModeCard(b, title, sub, accent, isTwo) {
-    const hov = hit(b,mx,my);
-    const { x, y, w, h } = b;
+    const hov = hit(b,mx,my), { x, y, w, h } = b;
     ctx.save();
     rr(x,y,w,h,12);
-    ctx.fillStyle = hov ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'; ctx.fill();
+    ctx.fillStyle = hov ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)'; ctx.fill();
     rr(x,y,w,h,12);
-    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.18)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.22)'; ctx.lineWidth=1.5; ctx.stroke();
     rr(x,y,w,4,12); ctx.fillStyle = hov ? accent : accent+'88'; ctx.fill();
 
     const iconY = y+70;
@@ -273,7 +285,6 @@ function drawClassicField() {
 }
 
 function drawStadiumField() {
-    // Background image or fallback grass stripes
     if (stadiumBg.complete && stadiumBg.naturalWidth > 0) {
         ctx.drawImage(stadiumBg, 0, 0, W, H);
     } else {
@@ -283,52 +294,26 @@ function drawStadiumField() {
             ctx.fillRect(0, i*stripe, W, stripe);
         }
     }
-
     ctx.save();
-    // Boundary lines (top/bottom walls)
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(0, 0,   W, 4);
-    ctx.fillRect(0, H-4, W, 4);
-
-    // Left/right sidelines
-    ctx.fillRect(0, 0,   4, H);
-    ctx.fillRect(W-4,0,  4, H);
-
-    // Center line (solid vertical)
+    ctx.fillRect(0,0,W,4); ctx.fillRect(0,H-4,W,4);
+    ctx.fillRect(0,0,4,H); ctx.fillRect(W-4,0,4,H);
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.fillRect(CX-2, 0, 4, H);
-
-    // Center circle
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(CX, CY, 68, 0, Math.PI*2); ctx.stroke();
-
-    // Center dot
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(CX, CY, 5, 0, Math.PI*2); ctx.fill();
-
-    // Penalty boxes
     ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 2;
-    // left
-    ctx.strokeRect(4, CY-90, 90, 180);
-    // right
-    ctx.strokeRect(W-94, CY-90, 90, 180);
-
-    // Goal mouths
-    ctx.strokeRect(4, CY-44, 36, 88);
-    ctx.strokeRect(W-40, CY-44, 36, 88);
-
-    // Penalty spots
+    ctx.strokeRect(4, CY-90, 90, 180); ctx.strokeRect(W-94, CY-90, 90, 180);
+    ctx.strokeRect(4, CY-44, 36, 88);  ctx.strokeRect(W-40, CY-44, 36, 88);
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.beginPath(); ctx.arc(70, CY, 3, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(W-70, CY, 3, 0, Math.PI*2); ctx.fill();
-
-    // Corner arcs
     const ca = 14;
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5;
-    [[4,4,0,Math.PI/2],[W-4,4,Math.PI/2,Math.PI],[4,H-4,-Math.PI/2,0],[W-4,H-4,Math.PI,3*Math.PI/2]].forEach(([x,y,s,e])=>{
-        ctx.beginPath(); ctx.arc(x,y,ca,s,e); ctx.stroke();
-    });
+    [[4,4,0,Math.PI/2],[W-4,4,Math.PI/2,Math.PI],[4,H-4,-Math.PI/2,0],[W-4,H-4,Math.PI,3*Math.PI/2]]
+        .forEach(([x,y,s,e])=>{ ctx.beginPath(); ctx.arc(x,y,ca,s,e); ctx.stroke(); });
     ctx.restore();
 }
 
@@ -338,30 +323,25 @@ function drawGame(s) {
     else                     drawClassicField();
 
     const textCol = theme === 'stadium' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.22)';
-
-    // Player labels
     const p2label = s.twoPlayerMode ? 'P2' : 'IA';
-    if (theme === 'stadium') {
-        // Score backdrop in stadium mode
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(W/4-42, 26, 84, 55);
-        ctx.fillRect(W*3/4-42, 26, 84, 55);
-    }
+
+    // Scores — shadow in stadium so they pop over the image
+    ctx.save();
+    if (theme === 'stadium') { ctx.shadowColor = 'rgba(0,0,0,1)'; ctx.shadowBlur = 8; }
     ctx.fillStyle = textCol;
     ctx.font = '13px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('P1', W/4, 22);
     ctx.fillText(p2label, W*3/4, 22);
-
     ctx.fillStyle = 'rgba(255,255,255,0.88)';
     ctx.font = 'bold 58px monospace';
     ctx.fillText(s.scoreLeft,  W/4,   70);
     ctx.fillText(s.scoreRight, W*3/4, 70);
+    ctx.restore();
 
     // Paddles
-    const paddleCol = theme === 'stadium' ? '#ffffff' : '#ffffff';
     [s.paddleLeft, s.paddleRight].forEach(p => {
-        ctx.fillStyle = paddleCol;
+        ctx.fillStyle = '#ffffff';
         rr(p.x, p.y, p.width, p.height, 5); ctx.fill();
     });
 
@@ -369,7 +349,6 @@ function drawGame(s) {
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(s.ball.x, s.ball.y, s.ball.radius, 0, Math.PI*2); ctx.fill();
     if (theme === 'stadium') {
-        // Soccer ball center patch
         ctx.fillStyle = '#111';
         ctx.beginPath(); ctx.arc(s.ball.x, s.ball.y, s.ball.radius*0.38, 0, Math.PI*2); ctx.fill();
     }
@@ -392,27 +371,201 @@ function drawGame(s) {
         ctx.textAlign = 'right'; ctx.fillText(`${Math.ceil(s.effectTimerRight)}s`, W-14, H-14);
     }
 
-    // Pause button
-    const pb = R.PLAYING[0], phov = hit(pb,mx,my);
+    // Pause + info buttons (only during PLAYING)
+    if (gs?.status === 'PLAYING') {
+        const pb = R.PLAYING[0], phov = hit(pb,mx,my);
+        ctx.save();
+        rr(pb.x,pb.y,pb.w,pb.h,8);
+        ctx.fillStyle = phov ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)'; ctx.fill();
+        rr(pb.x,pb.y,pb.w,pb.h,8);
+        ctx.strokeStyle = phov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.22)'; ctx.lineWidth=1.2; ctx.stroke();
+        const bx=pb.x+pb.w/2, by=pb.y+pb.h/2;
+        ctx.fillStyle = phov ? '#fff' : 'rgba(255,255,255,0.6)';
+        ctx.fillRect(bx-8, by-7, 5, 14); ctx.fillRect(bx+3, by-7, 5, 14);
+        ctx.restore();
+
+        drawInfoBtn();
+    }
+}
+
+// ── INFO BUTTON ────────────────────────────────────────────────────────────
+function drawInfoBtn() {
+    const b = INFO_BTN, hov = !showInfo && hit(b, mx, my);
     ctx.save();
-    rr(pb.x,pb.y,pb.w,pb.h,8);
-    ctx.fillStyle = phov ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)'; ctx.fill();
-    rr(pb.x,pb.y,pb.w,pb.h,8);
-    ctx.strokeStyle = phov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.22)'; ctx.lineWidth=1.2; ctx.stroke();
-    const bx=pb.x+pb.w/2, by=pb.y+pb.h/2;
-    ctx.fillStyle = phov ? '#fff' : 'rgba(255,255,255,0.6)';
-    ctx.fillRect(bx-8, by-7, 5, 14); ctx.fillRect(bx+3, by-7, 5, 14);
+    rr(b.x, b.y, b.w, b.h, 8);
+    ctx.fillStyle = hov ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)'; ctx.fill();
+    rr(b.x, b.y, b.w, b.h, 8);
+    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.22)'; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.6)';
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', b.x+b.w/2, b.y+b.h/2);
+    ctx.restore();
+}
+
+// ── INFO PANEL ─────────────────────────────────────────────────────────────
+function drawInfoPanel() {
+    ctx.fillStyle = 'rgba(0,0,0,0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    const px=80, py=88, pw=640, ph=416;
+    ctx.save();
+
+    rr(px, py, pw, ph, 18);
+    ctx.fillStyle = '#0a0a0a'; ctx.fill();
+    rr(px, py, pw, ph, 18);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth=1.5; ctx.stroke();
+
+    // Title bar tint
+    rr(px, py, pw, 54, 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Cómo Jugar', CX, py+27);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(px+1, py+54, pw-2, 1);
+
+    const colL  = px+44;          // left column text start x
+    const colR  = px+pw/2+24;     // right column text start x
+    const colY  = py+82;
+    const sepX  = px+pw/2;        // column separator x
+    // max text widths — stop before the separator / panel edge
+    const maxWL = sepX - (colL+18) - 10;
+    const maxWR = (px+pw) - (colR+36) - 14;
+
+    // Canvas has no native text wrap — this helper does it
+    function wrapText(text, x, y, maxW, lineH) {
+        const words = text.split(' ');
+        let line = '', ly = y;
+        for (const word of words) {
+            const test = line ? line + ' ' + word : word;
+            if (ctx.measureText(test).width > maxW && line) {
+                ctx.fillText(line, x, ly);
+                line = word; ly += lineH;
+            } else line = test;
+        }
+        ctx.fillText(line, x, ly);
+        return ly - y; // extra pixels consumed by wrapped lines
+    }
+
+    // ── Left column: Reglas ─────────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.letterSpacing = '0.1em';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('REGLAS', colL, colY);
+    ctx.letterSpacing = '0';
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(colL, colY+4, maxWL+18, 1);
+
+    const rules = [
+        'Golpea la pelota con tu paleta',
+        'Velocidad sube 5% por rebote',
+        'Ángulo varía por zona de golpe',
+        'Primero en anotar 5 puntos gana',
+    ];
+
+    ctx.font = '14px system-ui, sans-serif';
+    let ry = colY + 28;
+    rules.forEach(txt => {
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.beginPath(); ctx.arc(colL+5, ry-5, 3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.82)';
+        ctx.textAlign = 'left';
+        const extra = wrapText(txt, colL+18, ry, maxWL, 17);
+        ry += 30 + extra;
+    });
+
+    // Controles section (y is dynamic — follows rules)
+    const ctrlY = ry + 6;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(colL, ctrlY-12, maxWL+18, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.letterSpacing = '0.1em';
+    ctx.fillText('CONTROLES', colL, ctrlY);
+    ctx.letterSpacing = '0';
+
+    ['P1  —  W / S', 'P2  —  ↑ / ↓'].forEach((txt, i) => {
+        const ty = ctrlY + 22 + i*26;
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.beginPath(); ctx.arc(colL+5, ty-5, 3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.72)';
+        ctx.font = '600 13px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(txt, colL+18, ty);
+    });
+
+    // Vertical separator
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(sepX, colY-8, 1, ph-colY+py-42);
+
+    // ── Right column: Power-ups ─────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.letterSpacing = '0.1em';
+    ctx.fillText('POWER-UPS', colR, colY);
+    ctx.letterSpacing = '0';
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(colR, colY+4, maxWR+36, 1);
+
+    // GROW
+    const g1y = colY + 50;
+    ctx.fillStyle = '#32C864';
+    ctx.beginPath(); ctx.arc(colR+14, g1y, 14, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = '#32C864';
+    ctx.font = 'bold 15px system-ui, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Verde — paleta crece', colR+36, g1y-2);
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Dura 10 segundos', colR+36, g1y+16);
+
+    // SHRINK
+    const g2y = g1y + 74;
+    ctx.fillStyle = '#DC3C3C';
+    ctx.beginPath(); ctx.arc(colR+14, g2y, 14, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = '#DC3C3C';
+    ctx.font = 'bold 15px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Rojo — paleta se encoge', colR+36, g2y-2);
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Dura 10 segundos', colR+36, g2y+16);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Aparecen cada 15 segundos', colR, g2y+50);
+    ctx.fillText('en posición aleatoria del campo', colR, g2y+68);
+
+    // Footer
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(px+1, py+ph-44, pw-2, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Toca cualquier lugar para cerrar', CX, py+ph-16);
+
     ctx.restore();
 }
 
 // ── PAUSE ──────────────────────────────────────────────────────────────────
 function drawPause(s) {
     drawGame(s);
-    ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0,0,W,H);
+    const alpha = theme === 'stadium' ? 0.40 : 0.62;
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,W,H);
+    ctx.save();
+    if (theme === 'stadium') { ctx.shadowColor='rgba(0,0,0,0.95)'; ctx.shadowBlur=12; }
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 52px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('Pausa', CX, CY-40);
+    ctx.restore();
     drawBtn(R.PAUSED[0].x,R.PAUSED[0].y,R.PAUSED[0].w,R.PAUSED[0].h, 'Continuar', hit(R.PAUSED[0],mx,my),
         { fs:19,fw:'700',r:12,bg:'rgba(255,255,255,0.1)',hbg:'rgba(255,255,255,0.2)',bd:'rgba(255,255,255,0.4)',hbd:'rgba(255,255,255,1)' });
     drawBtn(R.PAUSED[1].x,R.PAUSED[1].y,R.PAUSED[1].w,R.PAUSED[1].h, 'Menú', hit(R.PAUSED[1],mx,my),
@@ -422,11 +575,15 @@ function drawPause(s) {
 // ── GAME OVER ──────────────────────────────────────────────────────────────
 function drawGameOver(s) {
     drawGame(s);
-    ctx.fillStyle = 'rgba(0,0,0,0.68)'; ctx.fillRect(0,0,W,H);
+    const alpha = theme === 'stadium' ? 0.40 : 0.68;
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0,0,W,H);
+    ctx.save();
+    if (theme === 'stadium') { ctx.shadowColor='rgba(0,0,0,0.95)'; ctx.shadowBlur=14; }
     ctx.fillStyle = '#FFDC00';
     ctx.font = 'bold 54px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText(`¡${s.winner} gana!`, CX, CY-45);
+    ctx.restore();
     drawBtn(R.GAME_OVER[0].x,R.GAME_OVER[0].y,R.GAME_OVER[0].w,R.GAME_OVER[0].h, 'Jugar de nuevo', hit(R.GAME_OVER[0],mx,my),
         { fs:19,fw:'700',r:12,bg:'rgba(255,255,255,0.1)',hbg:'rgba(255,255,255,0.2)',bd:'rgba(255,255,255,0.4)',hbd:'rgba(255,255,255,1)' });
     drawBtn(R.GAME_OVER[1].x,R.GAME_OVER[1].y,R.GAME_OVER[1].w,R.GAME_OVER[1].h, 'Menú', hit(R.GAME_OVER[1],mx,my),
@@ -440,8 +597,9 @@ function render() {
     else if (s.status === 'MENU')           drawMenu();
     else if (s.status === 'MODE_SELECTION') drawModeSelection();
     else if (s.status === 'PLAYING')        drawGame(s);
-    else if (s.status === 'PAUSED')         drawPause(s);
+    else if (s.status === 'PAUSED')         { if (showInfo) drawGame(s); else drawPause(s); }
     else if (s.status === 'GAME_OVER')      drawGameOver(s);
+    if (showInfo) drawInfoPanel();
     requestAnimationFrame(render);
 }
 

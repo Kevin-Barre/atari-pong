@@ -1,9 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
-import threading
 import webbrowser
-from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import websockets
@@ -47,23 +45,11 @@ async def game_runner() -> None:
         await asyncio.sleep(max(0.0, target_dt - elapsed))
 
 
-def _start_http_server() -> None:
-    presentation = Path(__file__).parent / "presentation"
-
-    class Handler(SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(presentation), **kwargs)
-
-        def log_message(self, *_args) -> None:
-            pass
-
-    HTTPServer(("localhost", constants.HTTP_PORT), Handler).serve_forever()
-
-
 async def main() -> None:
-    threading.Thread(target=_start_http_server, daemon=True).start()
-    url = f"http://localhost:{constants.HTTP_PORT}"
-    print(f"Abre el navegador en: {url}")
+    html = Path(__file__).parent / "presentation" / "index.html"
+    url  = html.as_uri()
+    print(f"Servidor WebSocket corriendo en ws://localhost:{constants.WS_PORT}")
+    print(f"Abriendo juego en: {url}")
     webbrowser.open(url)
     async with websockets.serve(ws_handler, "localhost", constants.WS_PORT):
         await game_runner()
