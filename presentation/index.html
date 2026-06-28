@@ -6,291 +6,414 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: #111;
+            background: #000;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
         }
-        canvas { display: block; border: 2px solid #333; cursor: default; }
+        canvas { display: block; cursor: default; }
     </style>
 </head>
 <body>
 <canvas id="game" width="800" height="600"></canvas>
 <script>
-// ── constants ──────────────────────────────────────────────────────────────
-const W  = 800, H = 600, CX = 400, CY = 300;
+const W = 800, H = 600, CX = 400, CY = 300;
 const WS_PORT = 8765;
-
-const BLACK  = '#000000', WHITE  = '#FFFFFF', GRAY  = '#787878';
-const GREEN  = '#32C864', RED    = '#DC3C3C', YELLOW = '#FFDC00';
-const CYAN   = '#00C8DC';
-
-// ── clickable button regions per state ────────────────────────────────────
-// Each entry: { x, y, w, h, code }  — x/y = top-left corner of hit area
-const REGIONS = {
-    MENU: [
-        { x: 190, y: 292, w: 420, h: 52, code: 'Enter' }
-    ],
-    MODE_SELECTION: [
-        { x: 155, y: 268, w: 490, h: 56, code: 'Digit1' },
-        { x: 195, y: 326, w: 410, h: 56, code: 'Digit2' },
-        { x: 285, y: 388, w: 230, h: 44, code: 'Escape' }
-    ],
-    PAUSED: [
-        { x: 225, y: 305, w: 350, h: 52, code: 'KeyP' }
-    ],
-    GAME_OVER: [
-        { x: 225, y: 288, w: 350, h: 52, code: 'KeyR'   },
-        { x: 255, y: 342, w: 290, h: 52, code: 'Escape' }
-    ],
-    PLAYING: [
-        { x: 746, y: 5, w: 46, h: 34, code: 'KeyP' }   // pause icon
-    ]
-};
-
-// ── state ─────────────────────────────────────────────────────────────────
-let gameState = null;
-let ws        = null;
-let mouseX    = -1, mouseY = -1;
 
 const canvas = document.getElementById('game');
 const ctx    = canvas.getContext('2d');
 
-// ── WebSocket ─────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
+function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x+w, y,   x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x,   y+h, r);
+    ctx.arcTo(x,   y+h, x,   y,   r);
+    ctx.arcTo(x,   y,   x+w, y,   r);
+    ctx.closePath();
+}
+
+function drawBtn(x, y, w, h, label, hov, opts = {}) {
+    const r  = opts.r  ?? 10;
+    const fs = opts.fs ?? 18;
+    const fw = opts.fw ?? '600';
+    const fc = opts.fc ?? '#fff';
+    ctx.save();
+    rr(x, y, w, h, r);
+    ctx.fillStyle = hov
+        ? (opts.hbg ?? 'rgba(255,255,255,0.16)')
+        : (opts.bg  ?? 'rgba(255,255,255,0.07)');
+    ctx.fill();
+    rr(x, y, w, h, r);
+    ctx.strokeStyle = hov
+        ? (opts.hbd ?? 'rgba(255,255,255,0.9)')
+        : (opts.bd  ?? 'rgba(255,255,255,0.28)');
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = fc;
+    ctx.font = `${fw} ${fs}px system-ui, -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + w/2, y + h/2);
+    ctx.restore();
+}
+
+function hit(b, x, y) {
+    return x >= b.x && x <= b.x+b.w && y >= b.y && y <= b.y+b.h;
+}
+
+// ── button regions ─────────────────────────────────────────────────────────
+const R = {
+    MENU:           [{ x:270, y:318, w:260, h:60,  code:'Enter'  }],
+    MODE_SELECTION: [
+        { x:100, y:210, w:255, h:240, code:'Digit1' },
+        { x:445, y:210, w:255, h:240, code:'Digit2' },
+        { x:315, y:496, w:170, h:48,  code:'Escape' }
+    ],
+    PAUSED: [
+        { x:255, y:272, w:290, h:58,  code:'KeyP'   },
+        { x:310, y:346, w:180, h:46,  code:'Escape' }
+    ],
+    GAME_OVER: [
+        { x:245, y:310, w:310, h:58,  code:'KeyR'   },
+        { x:310, y:384, w:180, h:46,  code:'Escape' }
+    ],
+    PLAYING: [{ x:370, y:8, w:60, h:36, code:'KeyP' }]
+};
+
+function activeRegions() { return R[gs?.status] ?? []; }
+
+// ── state ──────────────────────────────────────────────────────────────────
+let gs = null, ws = null;
+let mx = -1, my = -1;
+
+// ── websocket ──────────────────────────────────────────────────────────────
 function connect() {
     ws = new WebSocket(`ws://localhost:${WS_PORT}`);
-    ws.onmessage = e => { gameState = JSON.parse(e.data); };
+    ws.onmessage = e => { gs = JSON.parse(e.data); };
     ws.onclose   = () => setTimeout(connect, 2000);
     ws.onerror   = () => ws.close();
 }
 
-function sendKey(code) {
+function send(code) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'keydown', code }));
-    setTimeout(() => ws.send(JSON.stringify({ type: 'keyup', code })), 60);
+    ws.send(JSON.stringify({ type:'keydown', code }));
+    setTimeout(() => ws.send(JSON.stringify({ type:'keyup', code })), 60);
 }
 
-// ── input ─────────────────────────────────────────────────────────────────
+// ── input ──────────────────────────────────────────────────────────────────
 window.addEventListener('keydown', e => {
     e.preventDefault();
     if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'keydown', code: e.code }));
+        ws.send(JSON.stringify({ type:'keydown', code:e.code }));
 });
 window.addEventListener('keyup', e => {
     if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'keyup', code: e.code }));
+        ws.send(JSON.stringify({ type:'keyup', code:e.code }));
 });
 
 canvas.addEventListener('mousemove', e => {
     const r = canvas.getBoundingClientRect();
-    mouseX = e.clientX - r.left;
-    mouseY = e.clientY - r.top;
-    const regions = REGIONS[gameState?.status] || [];
-    canvas.style.cursor = regions.some(b => hit(b, mouseX, mouseY)) ? 'pointer' : 'default';
+    mx = e.clientX - r.left;
+    my = e.clientY - r.top;
+    canvas.style.cursor = activeRegions().some(b => hit(b,mx,my)) ? 'pointer' : 'default';
 });
-canvas.addEventListener('mouseleave', () => { mouseX = -1; mouseY = -1; canvas.style.cursor = 'default'; });
-
+canvas.addEventListener('mouseleave', () => { mx=-1; my=-1; canvas.style.cursor='default'; });
 canvas.addEventListener('click', e => {
     const r = canvas.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
-    const regions = REGIONS[gameState?.status] || [];
-    const btn = regions.find(b => hit(b, x, y));
-    if (btn) sendKey(btn.code);
+    const x = e.clientX-r.left, y = e.clientY-r.top;
+    const b = activeRegions().find(b => hit(b,x,y));
+    if (b) send(b.code);
 });
 
-function hit(b, x, y) {
-    return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
-}
-
-// ── draw helpers ──────────────────────────────────────────────────────────
-function drawHoverHighlights(status) {
-    const regions = REGIONS[status] || [];
-    regions.forEach(b => {
-        if (!hit(b, mouseX, mouseY)) return;
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.07)';
-        ctx.fillRect(b.x, b.y, b.w, b.h);
-        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
-        ctx.restore();
-    });
-}
-
-function drawPauseBtn() {
-    const b = REGIONS.PLAYING[0];
-    const hovered = hit(b, mouseX, mouseY);
-    ctx.save();
-    ctx.fillStyle = hovered ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)';
-    ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.fillStyle = hovered ? WHITE : GRAY;
-    ctx.font = '14px monospace';
+// ── draw: CONNECTING ───────────────────────────────────────────────────────
+function drawConnecting() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    const dots = '   . . .'.slice(0, 3 + (Math.floor(Date.now()/350)%4)*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '20px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('II', b.x + b.w / 2, b.y + b.h / 2);
+    ctx.fillText('Conectando' + dots, CX, CY);
+}
+
+// ── draw: MENU ─────────────────────────────────────────────────────────────
+function drawMenu() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // subtle vertical lines background
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 50) {
+        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+
+    // "ATARI" eyebrow
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.letterSpacing = '0.3em';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('A T A R I', CX, 148);
+    ctx.letterSpacing = '0';
+
+    // "PONG" title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 118px system-ui, -apple-system, sans-serif';
+    ctx.fillText('PONG', CX, 274);
+
+    // divider
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(CX - 80, 290, 160, 1);
+
+    // Jugar button
+    const hov = hit(R.MENU[0], mx, my);
+    drawBtn(R.MENU[0].x, R.MENU[0].y, R.MENU[0].w, R.MENU[0].h,
+        'Jugar', hov, { fs:22, fw:'700', r:12,
+            bg:'rgba(255,255,255,0.09)', hbg:'rgba(255,255,255,0.18)',
+            bd:'rgba(255,255,255,0.35)', hbd:'rgba(255,255,255,1)' });
+
+    // footer
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Universidad Internacional del Ecuador', CX, 558);
+}
+
+// ── draw: MODE SELECTION ───────────────────────────────────────────────────
+function drawModeSelection() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 34px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Elige tu modo de juego', CX, 152);
+
+    // cards
+    drawModeCard(R.MODE_SELECTION[0], '1 Jugador', 'vs. Inteligencia Artificial', '#00C8DC', false);
+    drawModeCard(R.MODE_SELECTION[1], '2 Jugadores', 'Mismo teclado', '#32C864', true);
+
+    // back button
+    const hbk = hit(R.MODE_SELECTION[2], mx, my);
+    drawBtn(R.MODE_SELECTION[2].x, R.MODE_SELECTION[2].y,
+            R.MODE_SELECTION[2].w, R.MODE_SELECTION[2].h,
+        'Volver', hbk, { fs:16, fc:'rgba(255,255,255,0.7)',
+            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
+            bd:'rgba(255,255,255,0.15)', hbd:'rgba(255,255,255,0.5)' });
+}
+
+function drawModeCard(b, title, sub, accent, isTwo) {
+    const hov = hit(b, mx, my);
+    const { x, y, w, h } = b;
+
+    // background
+    ctx.save();
+    rr(x, y, w, h, 12);
+    ctx.fillStyle = hov ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)';
+    ctx.fill();
+    rr(x, y, w, h, 12);
+    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // top accent bar
+    rr(x, y, w, 4, 12);
+    ctx.fillStyle = hov ? accent : accent + '88';
+    ctx.fill();
+
+    // mini paddle icon(s)
+    const iconY = y + 70;
+    if (isTwo) {
+        // two paddles
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.6)';
+        ctx.fillRect(x + 66, iconY, 10, 52);
+        ctx.fillRect(x + 175, iconY, 10, 52);
+        // mini ball
+        ctx.beginPath();
+        ctx.arc(x + w/2, iconY + 26, 6, 0, Math.PI*2);
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)';
+        ctx.fill();
+    } else {
+        // one paddle (right = player) + dotted left (IA)
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.7)';
+        ctx.fillRect(x + 178, iconY, 10, 52);
+        ctx.strokeStyle = hov ? accent : accent + 'aa';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(x + 65, iconY, 10, 52);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(x + w/2 - 20, iconY + 26, 6, 0, Math.PI*2);
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)';
+        ctx.fill();
+    }
+
+    // title
+    ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.9)';
+    ctx.font = `bold 22px system-ui, -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(title, x + w/2, y + 160);
+
+    // subtitle
+    ctx.fillStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)';
+    ctx.font = `15px system-ui, sans-serif`;
+    ctx.fillText(sub, x + w/2, y + 185);
+
+    // "Seleccionar" label at bottom
+    ctx.fillStyle = hov ? accent : 'rgba(255,255,255,0.2)';
+    ctx.font = `600 13px system-ui, sans-serif`;
+    ctx.fillText('Seleccionar', x + w/2, y + 220);
+
     ctx.restore();
 }
 
-// ── renderers ─────────────────────────────────────────────────────────────
-function drawConnecting() {
-    ctx.fillStyle = BLACK;
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = GRAY;
-    ctx.font = '28px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Conectando...', CX, CY);
-}
-
+// ── draw: GAME ─────────────────────────────────────────────────────────────
 function drawGame(s) {
-    ctx.fillStyle = BLACK;
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
 
     // center line
-    ctx.fillStyle = GRAY;
-    for (let y = 10; y < H; y += 30) ctx.fillRect(CX - 2, y, 4, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    for (let y = 10; y < H; y += 28) ctx.fillRect(CX - 2, y, 4, 14);
+
+    // player labels
+    const p2label = s.twoPlayerMode ? 'P2' : 'IA';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('P1', W/4, 22);
+    ctx.fillText(p2label, W*3/4, 22);
+
+    // scores
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 58px monospace';
+    ctx.fillText(s.scoreLeft,  W/4,     70);
+    ctx.fillText(s.scoreRight, W*3/4,   70);
 
     // paddles
     [s.paddleLeft, s.paddleRight].forEach(p => {
-        const r = 4;
-        ctx.fillStyle = WHITE;
-        ctx.beginPath();
-        ctx.moveTo(p.x + r, p.y);
-        ctx.arcTo(p.x + p.width, p.y,            p.x + p.width, p.y + p.height, r);
-        ctx.arcTo(p.x + p.width, p.y + p.height, p.x,           p.y + p.height, r);
-        ctx.arcTo(p.x,           p.y + p.height, p.x,           p.y,            r);
-        ctx.arcTo(p.x,           p.y,             p.x + p.width, p.y,            r);
-        ctx.closePath();
+        const r = 5;
+        ctx.fillStyle = '#fff';
+        rr(p.x, p.y, p.width, p.height, r);
         ctx.fill();
     });
 
     // ball
-    ctx.fillStyle = WHITE;
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(s.ball.x, s.ball.y, s.ball.radius, 0, Math.PI * 2);
+    ctx.arc(s.ball.x, s.ball.y, s.ball.radius, 0, Math.PI*2);
     ctx.fill();
 
     // power-up
     if (s.powerUp) {
-        ctx.fillStyle   = s.powerUp.type === 'GROW' ? GREEN : RED;
-        ctx.strokeStyle = WHITE;
-        ctx.lineWidth   = 2;
+        const c = s.powerUp.type === 'GROW' ? '#32C864' : '#DC3C3C';
+        ctx.fillStyle = c;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(s.powerUp.x, s.powerUp.y, s.powerUp.radius, 0, Math.PI * 2);
+        ctx.arc(s.powerUp.x, s.powerUp.y, s.powerUp.radius, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
     }
 
-    // scores
-    ctx.fillStyle = WHITE;
-    ctx.font = 'bold 64px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(s.scoreLeft,  W / 4,     70);
-    ctx.fillText(s.scoreRight, W * 3 / 4, 70);
-
     // effect timers
-    ctx.font = '22px monospace';
     if (s.effectTimerLeft > 0) {
-        ctx.fillStyle = YELLOW; ctx.textAlign = 'left';
-        ctx.fillText(`P1  ${Math.ceil(s.effectTimerLeft)}s`, 10, H - 14);
+        ctx.fillStyle = '#FFDC00';
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${Math.ceil(s.effectTimerLeft)}s`, 14, H - 14);
     }
     if (s.effectTimerRight > 0) {
-        ctx.fillStyle = YELLOW; ctx.textAlign = 'right';
-        ctx.fillText(`P2  ${Math.ceil(s.effectTimerRight)}s`, W - 10, H - 14);
+        ctx.fillStyle = '#FFDC00';
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.ceil(s.effectTimerRight)}s`, W - 14, H - 14);
     }
+
+    // pause button (top center)
+    const pb = R.PLAYING[0];
+    const phov = hit(pb, mx, my);
+    ctx.save();
+    rr(pb.x, pb.y, pb.w, pb.h, 8);
+    ctx.fillStyle = phov ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)';
+    ctx.fill();
+    rr(pb.x, pb.y, pb.w, pb.h, 8);
+    ctx.strokeStyle = phov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    // pause bars
+    const bx = pb.x + pb.w/2, by = pb.y + pb.h/2;
+    ctx.fillStyle = phov ? '#fff' : 'rgba(255,255,255,0.6)';
+    ctx.fillRect(bx - 8, by - 7, 5, 14);
+    ctx.fillRect(bx + 3, by - 7, 5, 14);
+    ctx.restore();
 }
 
-function drawMenu() {
-    ctx.fillStyle = BLACK;
+// ── draw: PAUSE ────────────────────────────────────────────────────────────
+function drawPause(s) {
+    drawGame(s);
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
     ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 52px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = WHITE;
-    ctx.font = 'bold 80px monospace';
-    ctx.fillText('ATARI PONG', CX, CY - 60);
-    ctx.fillStyle = GRAY;
-    ctx.font = '30px monospace';
-    ctx.fillText('[ ENTER ]  Jugar', CX, CY + 20);
-    ctx.font = '16px monospace';
-    ctx.fillText('clic o tecla', CX, CY + 52);
-    ctx.font = '18px monospace';
-    ctx.fillText('Universidad Internacional del Ecuador', CX, CY + 130);
+    ctx.fillText('Pausa', CX, CY - 40);
+
+    const h1 = hit(R.PAUSED[0], mx, my);
+    const h2 = hit(R.PAUSED[1], mx, my);
+    drawBtn(R.PAUSED[0].x, R.PAUSED[0].y, R.PAUSED[0].w, R.PAUSED[0].h,
+        'Continuar', h1, { fs:19, fw:'700', r:12,
+            bg:'rgba(255,255,255,0.1)', hbg:'rgba(255,255,255,0.2)',
+            bd:'rgba(255,255,255,0.4)', hbd:'rgba(255,255,255,1)' });
+    drawBtn(R.PAUSED[1].x, R.PAUSED[1].y, R.PAUSED[1].w, R.PAUSED[1].h,
+        'Menú', h2, { fs:16, fc:'rgba(255,255,255,0.7)',
+            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
+            bd:'rgba(255,255,255,0.18)', hbd:'rgba(255,255,255,0.6)' });
 }
 
-function drawModeSelection() {
-    ctx.fillStyle = BLACK;
+// ── draw: GAME OVER ────────────────────────────────────────────────────────
+function drawGameOver(s) {
+    drawGame(s);
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
     ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#FFDC00';
+    ctx.font = 'bold 54px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = WHITE;
-    ctx.font = 'bold 56px monospace';
-    ctx.fillText('MODO DE JUEGO', CX, CY - 80);
-    ctx.fillStyle = CYAN;
-    ctx.font = '32px monospace';
-    ctx.fillText('[ 1 ]  1 Jugador  (vs IA)', CX, CY);
-    ctx.fillStyle = GREEN;
-    ctx.fillText('[ 2 ]  2 Jugadores', CX, CY + 55);
-    ctx.fillStyle = GRAY;
-    ctx.font = '22px monospace';
-    ctx.fillText('[ ESC ]  volver', CX, CY + 115);
+    ctx.fillText(`¡${s.winner} gana!`, CX, CY - 45);
+
+    const h1 = hit(R.GAME_OVER[0], mx, my);
+    const h2 = hit(R.GAME_OVER[1], mx, my);
+    drawBtn(R.GAME_OVER[0].x, R.GAME_OVER[0].y, R.GAME_OVER[0].w, R.GAME_OVER[0].h,
+        'Jugar de nuevo', h1, { fs:19, fw:'700', r:12,
+            bg:'rgba(255,255,255,0.1)', hbg:'rgba(255,255,255,0.2)',
+            bd:'rgba(255,255,255,0.4)', hbd:'rgba(255,255,255,1)' });
+    drawBtn(R.GAME_OVER[1].x, R.GAME_OVER[1].y, R.GAME_OVER[1].w, R.GAME_OVER[1].h,
+        'Menú', h2, { fs:16, fc:'rgba(255,255,255,0.7)',
+            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
+            bd:'rgba(255,255,255,0.18)', hbd:'rgba(255,255,255,0.6)' });
 }
 
-function drawPause() {
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = WHITE;
-    ctx.font = 'bold 56px monospace';
-    ctx.fillText('PAUSA', CX, CY - 20);
-    ctx.fillStyle = GRAY;
-    ctx.font = '28px monospace';
-    ctx.fillText('[ P ]  continuar', CX, CY + 32);
-}
-
-function drawGameOver(winner) {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = YELLOW;
-    ctx.font = 'bold 64px monospace';
-    ctx.fillText(`¡${winner} gana!`, CX, CY - 60);
-    ctx.fillStyle = WHITE;
-    ctx.font = '30px monospace';
-    ctx.fillText('[ R ]  Reiniciar', CX, CY + 20);
-    ctx.fillStyle = GRAY;
-    ctx.fillText('[ ESC ]  Menú', CX, CY + 70);
-}
-
-// ── main render loop ───────────────────────────────────────────────────────
+// ── render loop ────────────────────────────────────────────────────────────
 function render() {
-    const s = gameState;
-
-    if (!s) {
-        drawConnecting();
-    } else if (s.status === 'MENU') {
-        drawMenu();
-        drawHoverHighlights('MENU');
-    } else if (s.status === 'MODE_SELECTION') {
-        drawModeSelection();
-        drawHoverHighlights('MODE_SELECTION');
-    } else if (s.status === 'PLAYING') {
-        drawGame(s);
-        drawPauseBtn();
-        drawHoverHighlights('PLAYING');
-    } else if (s.status === 'PAUSED') {
-        drawGame(s);
-        drawPause();
-        drawHoverHighlights('PAUSED');
-    } else if (s.status === 'GAME_OVER') {
-        drawGame(s);
-        drawGameOver(s.winner);
-        drawHoverHighlights('GAME_OVER');
-    }
-
+    const s = gs;
+    if      (!s)                         drawConnecting();
+    else if (s.status === 'MENU')         drawMenu();
+    else if (s.status === 'MODE_SELECTION') drawModeSelection();
+    else if (s.status === 'PLAYING')      drawGame(s);
+    else if (s.status === 'PAUSED')       drawPause(s);
+    else if (s.status === 'GAME_OVER')    drawGameOver(s);
     requestAnimationFrame(render);
 }
 

@@ -58,6 +58,7 @@ class GameLoop:
             "effectTimerLeft":  s.effect_timer_left,
             "effectTimerRight": s.effect_timer_right,
             "winner":           s.winner,
+            "twoPlayerMode":    s.two_player_mode,
         }
 
     def _handle_menu_key(self, code: str) -> None:
