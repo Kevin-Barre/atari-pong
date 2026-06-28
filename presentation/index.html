@@ -279,6 +279,11 @@ function drawGame(s) {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
 
+    // top & bottom walls
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(0, 0,    W, 3);
+    ctx.fillRect(0, H-3,  W, 3);
+
     // center line
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     for (let y = 10; y < H; y += 28) ctx.fillRect(CX - 2, y, 4, 14);

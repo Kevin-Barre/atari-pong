@@ -85,6 +85,8 @@ class GameLoop:
         elif status == GameStatus.PAUSED:
             if code == 'KeyP':
                 self._state.status = GameStatus.PLAYING
+            elif code == 'Escape':
+                self._state.status = GameStatus.MENU
 
         elif status == GameStatus.GAME_OVER:
             if code == 'KeyR':
