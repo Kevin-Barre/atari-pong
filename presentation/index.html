@@ -205,7 +205,7 @@ function drawModeSelection() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('Elige tu modo de juego', CX, 152);
 
-    drawModeCard(R.MODE_SELECTION[0], '1 Jugador', 'vs. Inteligencia Artificial', '#00C8DC', false);
+    drawModeCard(R.MODE_SELECTION[0], '1 Jugador', 'vs. IA', '#00C8DC', false);
     drawModeCard(R.MODE_SELECTION[1], '2 Jugadores', 'Mismo teclado', '#32C864', true);
 
     const hbk = hit(R.MODE_SELECTION[2],mx,my);
@@ -244,7 +244,7 @@ function drawModeCard(b, title, sub, accent, isTwo) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText(title, x+w/2, y+160);
     ctx.fillStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)';
-    ctx.font = '15px system-ui, sans-serif';
+    ctx.font = '14px system-ui, sans-serif';
     ctx.fillText(sub, x+w/2, y+185);
     ctx.fillStyle = hov ? accent : 'rgba(255,255,255,0.2)';
     ctx.font = '600 13px system-ui, sans-serif';
