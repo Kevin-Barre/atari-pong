@@ -1,10 +1,32 @@
 # Atari Pong — Versión Personalizada
 
-Proyecto universitario — Universidad Internacional del Ecuador  
-Materia: Arquitectura de Software  
-Autor: Kevin Barré Espín · Quito, Mayo 2026
+| | |
+|---|---|
+| **Nombre del proyecto** | Atari Pong — Versión Personalizada |
+| **Estudiante** | Kevin Barré Espín |
+| **Institución** | Universidad Internacional del Ecuador |
+| **Materia** | Arquitectura de Software |
+| **Fecha** | Junio 2026 |
 
-Reimplementación del Pong clásico usando una arquitectura híbrida: **Python** ejecuta la lógica del juego, **HTML5 Canvas** renderiza en el navegador, y **WebSocket** los conecta en tiempo real. Arquitectura limpia en 4 capas con principios SOLID.
+---
+
+## Objetivo del sistema
+
+Reimplementar el videojuego Pong clásico aplicando una arquitectura limpia en 4 capas con principios SOLID, usando **Python** para la lógica del servidor y **HTML5 Canvas** para el cliente, comunicados en tiempo real a través de **WebSocket**.
+
+---
+
+## Descripción de funcionalidades
+
+- **Modo 1 jugador** — el jugador compite contra una IA que sigue la pelota a velocidad limitada (vencible)
+- **Modo 2 jugadores** — dos jugadores en el mismo teclado con controles diferenciados
+- **Velocidad incremental** — la pelota acelera un 5 % en cada rebote, aumentando la dificultad progresivamente
+- **Sistema de power-ups** — aparecen en posición aleatoria; hacen crecer o encoger la paleta del jugador que los recoge durante 10 segundos
+- **Ángulo de rebote variable** — el ángulo de salida depende de la zona de impacto en la paleta
+- **Panel de ayuda** — botón `?` en pantalla que muestra reglas y power-ups, pausando el juego automáticamente
+- **Dos temas visuales** — Clásico (blanco sobre negro) y Estadio (imagen de campo de fútbol con marcas de cancha)
+
+---
 
 ---
 
