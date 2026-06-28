@@ -273,11 +273,15 @@ function drawClassicField() {
 }
 
 function drawStadiumField() {
-    // Grass stripes
-    const stripe = 60;
-    for (let i = 0; i*stripe < H; i++) {
-        ctx.fillStyle = i%2===0 ? '#2d7a2d' : '#267026';
-        ctx.fillRect(0, i*stripe, W, stripe);
+    // Background image or fallback grass stripes
+    if (stadiumBg.complete && stadiumBg.naturalWidth > 0) {
+        ctx.drawImage(stadiumBg, 0, 0, W, H);
+    } else {
+        const stripe = 60;
+        for (let i = 0; i*stripe < H; i++) {
+            ctx.fillStyle = i%2===0 ? '#2d7a2d' : '#267026';
+            ctx.fillRect(0, i*stripe, W, stripe);
+        }
     }
 
     ctx.save();
