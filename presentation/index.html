@@ -5,13 +5,7 @@
     <title>Atari Pong</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
+        body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         canvas { display: block; cursor: default; }
     </style>
 </head>
@@ -24,49 +18,47 @@ const WS_PORT = 8765;
 const canvas = document.getElementById('game');
 const ctx    = canvas.getContext('2d');
 
+// ── theme ──────────────────────────────────────────────────────────────────
+let theme = 'classic'; // 'classic' | 'stadium'
+
+const THEME_BTNS = [
+    { x:248, y:422, w:140, h:44, id:'classic', label:'Clásico' },
+    { x:412, y:422, w:140, h:44, id:'stadium', label:'Estadio ⚽'  }
+];
+
 // ── helpers ────────────────────────────────────────────────────────────────
 function rr(x, y, w, h, r) {
     ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x+w, y,   x+w, y+h, r);
-    ctx.arcTo(x+w, y+h, x,   y+h, r);
-    ctx.arcTo(x,   y+h, x,   y,   r);
-    ctx.arcTo(x,   y,   x+w, y,   r);
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w,y,   x+w,y+h, r);
+    ctx.arcTo(x+w,y+h, x,  y+h, r);
+    ctx.arcTo(x,  y+h, x,  y,   r);
+    ctx.arcTo(x,  y,   x+w,y,   r);
     ctx.closePath();
 }
 
-function drawBtn(x, y, w, h, label, hov, opts = {}) {
-    const r  = opts.r  ?? 10;
-    const fs = opts.fs ?? 18;
-    const fw = opts.fw ?? '600';
-    const fc = opts.fc ?? '#fff';
+function drawBtn(x, y, w, h, label, hov, opts={}) {
+    const r = opts.r ?? 10, fs = opts.fs ?? 18, fw = opts.fw ?? '600', fc = opts.fc ?? '#fff';
     ctx.save();
-    rr(x, y, w, h, r);
-    ctx.fillStyle = hov
-        ? (opts.hbg ?? 'rgba(255,255,255,0.16)')
-        : (opts.bg  ?? 'rgba(255,255,255,0.07)');
+    rr(x,y,w,h,r);
+    ctx.fillStyle = hov ? (opts.hbg ?? 'rgba(255,255,255,0.16)') : (opts.bg ?? 'rgba(255,255,255,0.07)');
     ctx.fill();
-    rr(x, y, w, h, r);
-    ctx.strokeStyle = hov
-        ? (opts.hbd ?? 'rgba(255,255,255,0.9)')
-        : (opts.bd  ?? 'rgba(255,255,255,0.28)');
+    rr(x,y,w,h,r);
+    ctx.strokeStyle = hov ? (opts.hbd ?? 'rgba(255,255,255,0.9)') : (opts.bd ?? 'rgba(255,255,255,0.28)');
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.fillStyle = fc;
     ctx.font = `${fw} ${fs}px system-ui, -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, x + w/2, y + h/2);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, x+w/2, y+h/2);
     ctx.restore();
 }
 
-function hit(b, x, y) {
-    return x >= b.x && x <= b.x+b.w && y >= b.y && y <= b.y+b.h;
-}
+function hit(b, x, y) { return x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h; }
 
 // ── button regions ─────────────────────────────────────────────────────────
 const R = {
-    MENU:           [{ x:270, y:318, w:260, h:60,  code:'Enter'  }],
+    MENU:           [{ x:270, y:318, w:260, h:60, code:'Enter' }],
     MODE_SELECTION: [
         { x:100, y:210, w:255, h:240, code:'Digit1' },
         { x:445, y:210, w:255, h:240, code:'Digit2' },
@@ -86,8 +78,7 @@ const R = {
 function activeRegions() { return R[gs?.status] ?? []; }
 
 // ── state ──────────────────────────────────────────────────────────────────
-let gs = null, ws = null;
-let mx = -1, my = -1;
+let gs = null, ws = null, mx = -1, my = -1;
 
 // ── websocket ──────────────────────────────────────────────────────────────
 function connect() {
@@ -96,7 +87,6 @@ function connect() {
     ws.onclose   = () => setTimeout(connect, 2000);
     ws.onerror   = () => ws.close();
 }
-
 function send(code) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type:'keydown', code }));
@@ -106,319 +96,337 @@ function send(code) {
 // ── input ──────────────────────────────────────────────────────────────────
 window.addEventListener('keydown', e => {
     e.preventDefault();
-    if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type:'keydown', code:e.code }));
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'keydown', code:e.code }));
 });
 window.addEventListener('keyup', e => {
-    if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type:'keyup', code:e.code }));
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'keyup', code:e.code }));
 });
 
 canvas.addEventListener('mousemove', e => {
     const r = canvas.getBoundingClientRect();
-    mx = e.clientX - r.left;
-    my = e.clientY - r.top;
-    canvas.style.cursor = activeRegions().some(b => hit(b,mx,my)) ? 'pointer' : 'default';
+    mx = e.clientX-r.left; my = e.clientY-r.top;
+    const onWsBtn    = activeRegions().some(b => hit(b,mx,my));
+    const onThemeBtn = (!gs || gs.status === 'MENU') && THEME_BTNS.some(b => hit(b,mx,my));
+    canvas.style.cursor = (onWsBtn || onThemeBtn) ? 'pointer' : 'default';
 });
 canvas.addEventListener('mouseleave', () => { mx=-1; my=-1; canvas.style.cursor='default'; });
+
 canvas.addEventListener('click', e => {
     const r = canvas.getBoundingClientRect();
     const x = e.clientX-r.left, y = e.clientY-r.top;
+    // theme buttons (menu only)
+    if (!gs || gs.status === 'MENU') {
+        const tb = THEME_BTNS.find(b => hit(b,x,y));
+        if (tb) { theme = tb.id; return; }
+    }
     const b = activeRegions().find(b => hit(b,x,y));
     if (b) send(b.code);
 });
 
-// ── draw: CONNECTING ───────────────────────────────────────────────────────
+// ── CONNECTING ─────────────────────────────────────────────────────────────
 function drawConnecting() {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
-    const dots = '   . . .'.slice(0, 3 + (Math.floor(Date.now()/350)%4)*2);
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+    const dots = '   . . .'.slice(0, 3+(Math.floor(Date.now()/350)%4)*2);
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '20px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Conectando' + dots, CX, CY);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Conectando'+dots, CX, CY);
 }
 
-// ── draw: MENU ─────────────────────────────────────────────────────────────
+// ── MENU ───────────────────────────────────────────────────────────────────
 function drawMenu() {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
+    for (let x=0; x<W; x+=50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
 
-    // subtle vertical lines background
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 50) {
-        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
-    }
-
-    // "ATARI" eyebrow
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '13px system-ui, sans-serif';
     ctx.letterSpacing = '0.3em';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('A T A R I', CX, 148);
     ctx.letterSpacing = '0';
 
-    // "PONG" title
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 118px system-ui, -apple-system, sans-serif';
     ctx.fillText('PONG', CX, 274);
 
-    // divider
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(CX - 80, 290, 160, 1);
+    ctx.fillRect(CX-80, 290, 160, 1);
 
     // Jugar button
-    const hov = hit(R.MENU[0], mx, my);
     drawBtn(R.MENU[0].x, R.MENU[0].y, R.MENU[0].w, R.MENU[0].h,
-        'Jugar', hov, { fs:22, fw:'700', r:12,
-            bg:'rgba(255,255,255,0.09)', hbg:'rgba(255,255,255,0.18)',
-            bd:'rgba(255,255,255,0.35)', hbd:'rgba(255,255,255,1)' });
+        'Jugar', hit(R.MENU[0],mx,my),
+        { fs:22, fw:'700', r:12, bg:'rgba(255,255,255,0.09)', hbg:'rgba(255,255,255,0.18)',
+          bd:'rgba(255,255,255,0.35)', hbd:'rgba(255,255,255,1)' });
 
-    // footer
+    // Theme selector label
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('CAMPO', CX, 414);
+
+    // Theme buttons
+    THEME_BTNS.forEach(tb => {
+        const sel = theme === tb.id;
+        const hov = hit(tb, mx, my);
+        ctx.save();
+        rr(tb.x, tb.y, tb.w, tb.h, 8);
+        ctx.fillStyle = sel ? 'rgba(255,255,255,0.13)' : hov ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
+        ctx.fill();
+        rr(tb.x, tb.y, tb.w, tb.h, 8);
+        ctx.strokeStyle = sel ? 'rgba(255,255,255,0.85)' : hov ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = sel ? 2 : 1.2;
+        ctx.stroke();
+        // color dot
+        ctx.fillStyle = tb.id === 'stadium' ? '#32a852' : '#ffffff';
+        ctx.beginPath();
+        ctx.arc(tb.x+20, tb.y+tb.h/2, 7, 0, Math.PI*2);
+        ctx.fill();
+        if (tb.id === 'stadium') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        ctx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,0.6)';
+        ctx.font = `${sel?'600':'500'} 14px system-ui, sans-serif`;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(tb.label, tb.x+36, tb.y+tb.h/2);
+        ctx.restore();
+    });
+
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText('Universidad Internacional del Ecuador', CX, 558);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Universidad Internacional del Ecuador', CX, 575);
 }
 
-// ── draw: MODE SELECTION ───────────────────────────────────────────────────
+// ── MODE SELECTION ─────────────────────────────────────────────────────────
 function drawModeSelection() {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
-
-    // title
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 34px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('Elige tu modo de juego', CX, 152);
 
-    // cards
     drawModeCard(R.MODE_SELECTION[0], '1 Jugador', 'vs. Inteligencia Artificial', '#00C8DC', false);
     drawModeCard(R.MODE_SELECTION[1], '2 Jugadores', 'Mismo teclado', '#32C864', true);
 
-    // back button
-    const hbk = hit(R.MODE_SELECTION[2], mx, my);
-    drawBtn(R.MODE_SELECTION[2].x, R.MODE_SELECTION[2].y,
-            R.MODE_SELECTION[2].w, R.MODE_SELECTION[2].h,
-        'Volver', hbk, { fs:16, fc:'rgba(255,255,255,0.7)',
-            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
-            bd:'rgba(255,255,255,0.15)', hbd:'rgba(255,255,255,0.5)' });
+    const hbk = hit(R.MODE_SELECTION[2],mx,my);
+    drawBtn(R.MODE_SELECTION[2].x, R.MODE_SELECTION[2].y, R.MODE_SELECTION[2].w, R.MODE_SELECTION[2].h,
+        'Volver', hbk, { fs:16, fc:'rgba(255,255,255,0.7)', bg:'rgba(255,255,255,0.04)',
+          hbg:'rgba(255,255,255,0.1)', bd:'rgba(255,255,255,0.15)', hbd:'rgba(255,255,255,0.5)' });
 }
 
 function drawModeCard(b, title, sub, accent, isTwo) {
-    const hov = hit(b, mx, my);
+    const hov = hit(b,mx,my);
     const { x, y, w, h } = b;
-
-    // background
     ctx.save();
-    rr(x, y, w, h, 12);
-    ctx.fillStyle = hov ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)';
-    ctx.fill();
-    rr(x, y, w, h, 12);
-    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    rr(x,y,w,h,12);
+    ctx.fillStyle = hov ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'; ctx.fill();
+    rr(x,y,w,h,12);
+    ctx.strokeStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.18)'; ctx.lineWidth=1.5; ctx.stroke();
+    rr(x,y,w,4,12); ctx.fillStyle = hov ? accent : accent+'88'; ctx.fill();
 
-    // top accent bar
-    rr(x, y, w, 4, 12);
-    ctx.fillStyle = hov ? accent : accent + '88';
-    ctx.fill();
-
-    // mini paddle icon(s)
-    const iconY = y + 70;
+    const iconY = y+70;
     if (isTwo) {
-        // two paddles
         ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.6)';
-        ctx.fillRect(x + 66, iconY, 10, 52);
-        ctx.fillRect(x + 175, iconY, 10, 52);
-        // mini ball
-        ctx.beginPath();
-        ctx.arc(x + w/2, iconY + 26, 6, 0, Math.PI*2);
-        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)';
-        ctx.fill();
+        ctx.fillRect(x+66, iconY, 10, 52); ctx.fillRect(x+175, iconY, 10, 52);
+        ctx.beginPath(); ctx.arc(x+w/2, iconY+26, 6, 0, Math.PI*2);
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)'; ctx.fill();
     } else {
-        // one paddle (right = player) + dotted left (IA)
         ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.7)';
-        ctx.fillRect(x + 178, iconY, 10, 52);
-        ctx.strokeStyle = hov ? accent : accent + 'aa';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 4]);
-        ctx.strokeRect(x + 65, iconY, 10, 52);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.arc(x + w/2 - 20, iconY + 26, 6, 0, Math.PI*2);
-        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)';
-        ctx.fill();
+        ctx.fillRect(x+178, iconY, 10, 52);
+        ctx.strokeStyle = hov ? accent : accent+'aa'; ctx.lineWidth=2;
+        ctx.setLineDash([5,4]); ctx.strokeRect(x+65, iconY, 10, 52); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(x+w/2-20, iconY+26, 6, 0, Math.PI*2);
+        ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.5)'; ctx.fill();
     }
 
-    // title
     ctx.fillStyle = hov ? '#fff' : 'rgba(255,255,255,0.9)';
-    ctx.font = `bold 22px system-ui, -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(title, x + w/2, y + 160);
-
-    // subtitle
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(title, x+w/2, y+160);
     ctx.fillStyle = hov ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)';
-    ctx.font = `15px system-ui, sans-serif`;
-    ctx.fillText(sub, x + w/2, y + 185);
-
-    // "Seleccionar" label at bottom
+    ctx.font = '15px system-ui, sans-serif';
+    ctx.fillText(sub, x+w/2, y+185);
     ctx.fillStyle = hov ? accent : 'rgba(255,255,255,0.2)';
-    ctx.font = `600 13px system-ui, sans-serif`;
-    ctx.fillText('Seleccionar', x + w/2, y + 220);
-
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillText('Seleccionar', x+w/2, y+220);
     ctx.restore();
 }
 
-// ── draw: GAME ─────────────────────────────────────────────────────────────
-function drawGame(s) {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
-
-    // top & bottom walls
+// ── FIELD DRAWING ──────────────────────────────────────────────────────────
+function drawClassicField() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(0, 0,    W, 3);
-    ctx.fillRect(0, H-3,  W, 3);
-
-    // center line
+    ctx.fillRect(0,0,W,3); ctx.fillRect(0,H-3,W,3);
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    for (let y = 10; y < H; y += 28) ctx.fillRect(CX - 2, y, 4, 14);
+    for (let y=10; y<H; y+=28) ctx.fillRect(CX-2,y,4,14);
+}
 
-    // player labels
+function drawStadiumField() {
+    // Grass stripes
+    const stripe = 60;
+    for (let i = 0; i*stripe < H; i++) {
+        ctx.fillStyle = i%2===0 ? '#2d7a2d' : '#267026';
+        ctx.fillRect(0, i*stripe, W, stripe);
+    }
+
+    ctx.save();
+    // Boundary lines (top/bottom walls)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(0, 0,   W, 4);
+    ctx.fillRect(0, H-4, W, 4);
+
+    // Left/right sidelines
+    ctx.fillRect(0, 0,   4, H);
+    ctx.fillRect(W-4,0,  4, H);
+
+    // Center line (solid vertical)
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(CX-2, 0, 4, H);
+
+    // Center circle
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(CX, CY, 68, 0, Math.PI*2); ctx.stroke();
+
+    // Center dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(CX, CY, 5, 0, Math.PI*2); ctx.fill();
+
+    // Penalty boxes
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 2;
+    // left
+    ctx.strokeRect(4, CY-90, 90, 180);
+    // right
+    ctx.strokeRect(W-94, CY-90, 90, 180);
+
+    // Goal mouths
+    ctx.strokeRect(4, CY-44, 36, 88);
+    ctx.strokeRect(W-40, CY-44, 36, 88);
+
+    // Penalty spots
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.arc(70, CY, 3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(W-70, CY, 3, 0, Math.PI*2); ctx.fill();
+
+    // Corner arcs
+    const ca = 14;
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5;
+    [[4,4,0,Math.PI/2],[W-4,4,Math.PI/2,Math.PI],[4,H-4,-Math.PI/2,0],[W-4,H-4,Math.PI,3*Math.PI/2]].forEach(([x,y,s,e])=>{
+        ctx.beginPath(); ctx.arc(x,y,ca,s,e); ctx.stroke();
+    });
+    ctx.restore();
+}
+
+// ── GAME ───────────────────────────────────────────────────────────────────
+function drawGame(s) {
+    if (theme === 'stadium') drawStadiumField();
+    else                     drawClassicField();
+
+    const textCol = theme === 'stadium' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.22)';
+
+    // Player labels
     const p2label = s.twoPlayerMode ? 'P2' : 'IA';
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    if (theme === 'stadium') {
+        // Score backdrop in stadium mode
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(W/4-42, 26, 84, 55);
+        ctx.fillRect(W*3/4-42, 26, 84, 55);
+    }
+    ctx.fillStyle = textCol;
     ctx.font = '13px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('P1', W/4, 22);
     ctx.fillText(p2label, W*3/4, 22);
 
-    // scores
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
     ctx.font = 'bold 58px monospace';
-    ctx.fillText(s.scoreLeft,  W/4,     70);
-    ctx.fillText(s.scoreRight, W*3/4,   70);
+    ctx.fillText(s.scoreLeft,  W/4,   70);
+    ctx.fillText(s.scoreRight, W*3/4, 70);
 
-    // paddles
+    // Paddles
+    const paddleCol = theme === 'stadium' ? '#ffffff' : '#ffffff';
     [s.paddleLeft, s.paddleRight].forEach(p => {
-        const r = 5;
-        ctx.fillStyle = '#fff';
-        rr(p.x, p.y, p.width, p.height, r);
-        ctx.fill();
+        ctx.fillStyle = paddleCol;
+        rr(p.x, p.y, p.width, p.height, 5); ctx.fill();
     });
 
-    // ball
+    // Ball
     ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(s.ball.x, s.ball.y, s.ball.radius, 0, Math.PI*2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(s.ball.x, s.ball.y, s.ball.radius, 0, Math.PI*2); ctx.fill();
+    if (theme === 'stadium') {
+        // Soccer ball center patch
+        ctx.fillStyle = '#111';
+        ctx.beginPath(); ctx.arc(s.ball.x, s.ball.y, s.ball.radius*0.38, 0, Math.PI*2); ctx.fill();
+    }
 
-    // power-up
+    // Power-up
     if (s.powerUp) {
         const c = s.powerUp.type === 'GROW' ? '#32C864' : '#DC3C3C';
-        ctx.fillStyle = c;
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(s.powerUp.x, s.powerUp.y, s.powerUp.radius, 0, Math.PI*2);
-        ctx.fill();
-        ctx.stroke();
+        ctx.fillStyle = c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(s.powerUp.x, s.powerUp.y, s.powerUp.radius, 0, Math.PI*2);
+        ctx.fill(); ctx.stroke();
     }
 
-    // effect timers
+    // Effect timers
     if (s.effectTimerLeft > 0) {
-        ctx.fillStyle = '#FFDC00';
-        ctx.font = '13px system-ui, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(`${Math.ceil(s.effectTimerLeft)}s`, 14, H - 14);
+        ctx.fillStyle = '#FFDC00'; ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.fillText(`${Math.ceil(s.effectTimerLeft)}s`, 14, H-14);
     }
     if (s.effectTimerRight > 0) {
-        ctx.fillStyle = '#FFDC00';
-        ctx.font = '13px system-ui, sans-serif';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${Math.ceil(s.effectTimerRight)}s`, W - 14, H - 14);
+        ctx.fillStyle = '#FFDC00'; ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.fillText(`${Math.ceil(s.effectTimerRight)}s`, W-14, H-14);
     }
 
-    // pause button (top center)
-    const pb = R.PLAYING[0];
-    const phov = hit(pb, mx, my);
+    // Pause button
+    const pb = R.PLAYING[0], phov = hit(pb,mx,my);
     ctx.save();
-    rr(pb.x, pb.y, pb.w, pb.h, 8);
-    ctx.fillStyle = phov ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)';
-    ctx.fill();
-    rr(pb.x, pb.y, pb.w, pb.h, 8);
-    ctx.strokeStyle = phov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    // pause bars
-    const bx = pb.x + pb.w/2, by = pb.y + pb.h/2;
+    rr(pb.x,pb.y,pb.w,pb.h,8);
+    ctx.fillStyle = phov ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)'; ctx.fill();
+    rr(pb.x,pb.y,pb.w,pb.h,8);
+    ctx.strokeStyle = phov ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.22)'; ctx.lineWidth=1.2; ctx.stroke();
+    const bx=pb.x+pb.w/2, by=pb.y+pb.h/2;
     ctx.fillStyle = phov ? '#fff' : 'rgba(255,255,255,0.6)';
-    ctx.fillRect(bx - 8, by - 7, 5, 14);
-    ctx.fillRect(bx + 3, by - 7, 5, 14);
+    ctx.fillRect(bx-8, by-7, 5, 14); ctx.fillRect(bx+3, by-7, 5, 14);
     ctx.restore();
 }
 
-// ── draw: PAUSE ────────────────────────────────────────────────────────────
+// ── PAUSE ──────────────────────────────────────────────────────────────────
 function drawPause(s) {
     drawGame(s);
-    ctx.fillStyle = 'rgba(0,0,0,0.62)';
-    ctx.fillRect(0, 0, W, H);
-
+    ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 52px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Pausa', CX, CY - 40);
-
-    const h1 = hit(R.PAUSED[0], mx, my);
-    const h2 = hit(R.PAUSED[1], mx, my);
-    drawBtn(R.PAUSED[0].x, R.PAUSED[0].y, R.PAUSED[0].w, R.PAUSED[0].h,
-        'Continuar', h1, { fs:19, fw:'700', r:12,
-            bg:'rgba(255,255,255,0.1)', hbg:'rgba(255,255,255,0.2)',
-            bd:'rgba(255,255,255,0.4)', hbd:'rgba(255,255,255,1)' });
-    drawBtn(R.PAUSED[1].x, R.PAUSED[1].y, R.PAUSED[1].w, R.PAUSED[1].h,
-        'Menú', h2, { fs:16, fc:'rgba(255,255,255,0.7)',
-            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
-            bd:'rgba(255,255,255,0.18)', hbd:'rgba(255,255,255,0.6)' });
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Pausa', CX, CY-40);
+    drawBtn(R.PAUSED[0].x,R.PAUSED[0].y,R.PAUSED[0].w,R.PAUSED[0].h, 'Continuar', hit(R.PAUSED[0],mx,my),
+        { fs:19,fw:'700',r:12,bg:'rgba(255,255,255,0.1)',hbg:'rgba(255,255,255,0.2)',bd:'rgba(255,255,255,0.4)',hbd:'rgba(255,255,255,1)' });
+    drawBtn(R.PAUSED[1].x,R.PAUSED[1].y,R.PAUSED[1].w,R.PAUSED[1].h, 'Menú', hit(R.PAUSED[1],mx,my),
+        { fs:16,fc:'rgba(255,255,255,0.7)',bg:'rgba(255,255,255,0.04)',hbg:'rgba(255,255,255,0.1)',bd:'rgba(255,255,255,0.18)',hbd:'rgba(255,255,255,0.6)' });
 }
 
-// ── draw: GAME OVER ────────────────────────────────────────────────────────
+// ── GAME OVER ──────────────────────────────────────────────────────────────
 function drawGameOver(s) {
     drawGame(s);
-    ctx.fillStyle = 'rgba(0,0,0,0.68)';
-    ctx.fillRect(0, 0, W, H);
-
+    ctx.fillStyle = 'rgba(0,0,0,0.68)'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = '#FFDC00';
     ctx.font = 'bold 54px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(`¡${s.winner} gana!`, CX, CY - 45);
-
-    const h1 = hit(R.GAME_OVER[0], mx, my);
-    const h2 = hit(R.GAME_OVER[1], mx, my);
-    drawBtn(R.GAME_OVER[0].x, R.GAME_OVER[0].y, R.GAME_OVER[0].w, R.GAME_OVER[0].h,
-        'Jugar de nuevo', h1, { fs:19, fw:'700', r:12,
-            bg:'rgba(255,255,255,0.1)', hbg:'rgba(255,255,255,0.2)',
-            bd:'rgba(255,255,255,0.4)', hbd:'rgba(255,255,255,1)' });
-    drawBtn(R.GAME_OVER[1].x, R.GAME_OVER[1].y, R.GAME_OVER[1].w, R.GAME_OVER[1].h,
-        'Menú', h2, { fs:16, fc:'rgba(255,255,255,0.7)',
-            bg:'rgba(255,255,255,0.04)', hbg:'rgba(255,255,255,0.1)',
-            bd:'rgba(255,255,255,0.18)', hbd:'rgba(255,255,255,0.6)' });
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`¡${s.winner} gana!`, CX, CY-45);
+    drawBtn(R.GAME_OVER[0].x,R.GAME_OVER[0].y,R.GAME_OVER[0].w,R.GAME_OVER[0].h, 'Jugar de nuevo', hit(R.GAME_OVER[0],mx,my),
+        { fs:19,fw:'700',r:12,bg:'rgba(255,255,255,0.1)',hbg:'rgba(255,255,255,0.2)',bd:'rgba(255,255,255,0.4)',hbd:'rgba(255,255,255,1)' });
+    drawBtn(R.GAME_OVER[1].x,R.GAME_OVER[1].y,R.GAME_OVER[1].w,R.GAME_OVER[1].h, 'Menú', hit(R.GAME_OVER[1],mx,my),
+        { fs:16,fc:'rgba(255,255,255,0.7)',bg:'rgba(255,255,255,0.04)',hbg:'rgba(255,255,255,0.1)',bd:'rgba(255,255,255,0.18)',hbd:'rgba(255,255,255,0.6)' });
 }
 
-// ── render loop ────────────────────────────────────────────────────────────
+// ── RENDER LOOP ────────────────────────────────────────────────────────────
 function render() {
     const s = gs;
-    if      (!s)                         drawConnecting();
-    else if (s.status === 'MENU')         drawMenu();
+    if      (!s)                            drawConnecting();
+    else if (s.status === 'MENU')           drawMenu();
     else if (s.status === 'MODE_SELECTION') drawModeSelection();
-    else if (s.status === 'PLAYING')      drawGame(s);
-    else if (s.status === 'PAUSED')       drawPause(s);
-    else if (s.status === 'GAME_OVER')    drawGameOver(s);
+    else if (s.status === 'PLAYING')        drawGame(s);
+    else if (s.status === 'PAUSED')         drawPause(s);
+    else if (s.status === 'GAME_OVER')      drawGameOver(s);
     requestAnimationFrame(render);
 }
 
