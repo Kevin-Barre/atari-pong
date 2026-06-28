@@ -2,17 +2,26 @@
 
 | | |
 |---|---|
-| **Nombre del proyecto** | Atari Pong — Versión Personalizada |
+| **Nombre del proyecto** | El impacto de las nuevas tecnologías en la sociedad: desarrollo y proyección de soluciones informáticas |
+| **Solución desarrollada** | Atari Pong — Versión Personalizada |
 | **Estudiante** | Kevin Barré Espín |
 | **Institución** | Universidad Internacional del Ecuador |
-| **Materia** | Arquitectura de Software |
+| **Materia** | Lógica de Programación |
 | **Fecha** | Junio 2026 |
+
+---
+
+## Descripción del problema
+
+En la actualidad, las nuevas tecnologías influyen significativamente en la sociedad, transformando la forma en que las personas interactúan, trabajan y resuelven problemas.
+
+Este proyecto busca analizar este impacto y desarrollar una solución informática que responda a una necesidad específica, integrando los conocimientos adquiridos durante el curso.
 
 ---
 
 ## Objetivo del sistema
 
-Reimplementar el videojuego Pong clásico aplicando una arquitectura limpia en 4 capas con principios SOLID, usando **Python** para la lógica del servidor y **HTML5 Canvas** para el cliente, comunicados en tiempo real a través de **WebSocket**.
+Reimplementar el videojuego Pong clásico integrando los contenidos de las cuatro unidades de la materia — resolución de problemas, manejo de datos y algoritmos, condicionales y bucles, estructuras de datos y funciones — en un sistema funcional construido con **Python** (servidor) y **HTML5 Canvas** (cliente), comunicados en tiempo real a través de **WebSocket**.
 
 ---
 
